@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 450px;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    h2 {
+      margin: 0 0 10px 0;
+      color: #333;
+    }
+    .config-section {
+      border: 1px solid #ddd;
+      padding: 15px;
+      border-radius: 6px;
+      background: #f9f9f9;
+    }
+    .form-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      color: #555;
+      font-size: 13px;
+    }
+    input[type="text"], input[type="password"], input[type="url"], textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+      font-size: 13px;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 60px;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .btn-primary {
+      background: #4CAF50;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #45a049;
+    }
+    .btn-secondary {
+      background: #2196F3;
+      color: white;
+      margin-top: 8px;
+    }
+    .btn-secondary:hover {
+      background: #0b7dda;
+    }
+    .file-input-wrapper {
+      position: relative;
+      overflow: hidden;
+      display: inline-block;
+      width: 100%;
+    }
+    .file-input-wrapper input[type=file] {
+      position: absolute;
+      left: -9999px;
+    }
+    .file-input-label {
+      display: block;
+      padding: 10px;
+      background: #f0f0f0;
+      border: 2px dashed #ccc;
+      border-radius: 4px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .file-input-label:hover {
+      background: #e8e8e8;
+      border-color: #999;
+    }
+    .file-name {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #666;
+      word-break: break-all;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+    .status.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .status.info {
+      background: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+    .hidden {
+      display: none;
+    }
+    .preview {
+      max-height: 300px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      padding: 10px;
+      border-radius: 4px;
+      background: white;
+      font-size: 12px;
+    }
+    .metadata-preview {
+      background: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+    .metadata-preview strong {
+      color: #333;
+    }
+    .loading {
+      text-align: center;
+      padding: 20px;
+    }
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #3498db;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>📝 DOCX to Strapi Publisher</h2>
+    
+    <!-- Configuration Section -->
+    <div class="config-section" id="configSection">
+      <h3 style="margin-top: 0; font-size: 16px;">⚙️ Strapi Configuration</h3>
+      <div class="form-group">
+        <label>Strapi Base URL:</label>
+        <input type="url" id="strapiUrl" placeholder="https://your-strapi.com" />
+      </div>
+      <div class="form-group">
+        <label>API Token:</label>
+        <input type="password" id="apiToken" placeholder="Your Strapi API token" />
+      </div>
+      <div class="form-group">
+        <label>Collection Type (singular):</label>
+        <input type="text" id="collectionType" placeholder="blog-post" value="blog-post" />
+      </div>
+      <button class="btn-secondary" id="saveConfig">💾 Save Configuration</button>
+    </div>
+
+    <!-- Upload Section -->
+    <div id="uploadSection">
+      <div class="file-input-wrapper">
+        <input type="file" id="docxFile" accept=".docx" />
+        <label for="docxFile" class="file-input-label">
+          📄 Click to select DOCX file
+        </label>
+      </div>
+      <div class="file-name" id="fileName"></div>
+    </div>
+
+    <!-- Metadata Form (hidden initially) -->
+    <div id="metadataSection" class="hidden">
+      <h3 style="font-size: 16px; margin-bottom: 10px;">✏️ Edit Metadata</h3>
+      <div class="form-group">
+        <label>Title:</label>
+        <input type="text" id="title" />
+      </div>
+      <div class="form-group">
+        <label>Meta Title:</label>
+        <input type="text" id="metaTitle" />
+      </div>
+      <div class="form-group">
+        <label>Meta Description:</label>
+        <textarea id="metaDescription"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Meta Keywords (comma-separated):</label>
+        <input type="text" id="metaKeywords" />
+      </div>
+      <div class="form-group">
+        <label>Canonical URL:</label>
+        <input type="url" id="canonicalUrl" />
+      </div>
+      <div class="form-group">
+        <label>Publish At (ISO format or leave empty for now):</label>
+        <input type="text" id="publishAt" placeholder="2024-12-25T10:00:00.000Z" />
+      </div>
+      
+      <button class="btn-primary" id="publishBtn">🚀 Publish to Strapi</button>
+    </div>
+
+    <!-- Preview Section -->
+    <div id="previewSection" class="hidden">
+      <h3 style="font-size: 16px;">👁️ Content Preview</h3>
+      <div class="preview" id="contentPreview"></div>
+    </div>
+
+    <!-- Status Message -->
+    <div id="status" class="status hidden"></div>
+    
+    <!-- Loading Indicator -->
+    <div id="loading" class="loading hidden">
+      <div class="spinner"></div>
+      <p>Processing...</p>
+    </div>
+  </div>
+
+  <script src="mammoth.browser.min.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
