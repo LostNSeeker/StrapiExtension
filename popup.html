@@ -163,24 +163,42 @@
 </head>
 <body>
   <div class="container">
-    <h2>📝 DOCX to Strapi Publisher</h2>
+    <h2> DOCX to Strapi Publisher</h2>
     
     <!-- Configuration Section -->
     <div class="config-section" id="configSection">
       <h3 style="margin-top: 0; font-size: 16px;">⚙️ Strapi Configuration</h3>
       <div class="form-group">
         <label>Strapi Base URL:</label>
-        <input type="url" id="strapiUrl" placeholder="https://your-strapi.com" />
+        <input type="url" id="strapiUrl" placeholder="https://your-strapi.com or http://localhost:1337" />
+        <small style="color: #666; font-size: 11px; display: block; margin-top: 4px;">
+          Enter your Strapi server URL (without /api). Examples: https://api.example.com or http://localhost:1337
+        </small>
       </div>
       <div class="form-group">
         <label>API Token:</label>
         <input type="password" id="apiToken" placeholder="Your Strapi API token" />
+        <small style="color: #666; font-size: 11px; display: block; margin-top: 4px;">
+          Create an API token in Strapi: Settings → API Tokens → Create new API Token
+        </small>
       </div>
       <div class="form-group">
         <label>Collection Type (singular):</label>
         <input type="text" id="collectionType" placeholder="blog-post" value="blog-post" />
+        <small style="color: #666; font-size: 11px; display: block; margin-top: 4px;">
+          The singular name of your content type. Final API endpoint will be: {Base URL}/api/{Collection Type}
+        </small>
+      </div>
+      <div class="form-group">
+        <label>Content Field Name:</label>
+        <input type="text" id="contentFieldName" placeholder="body" value="content" />
+        <small style="color: #666; font-size: 11px; display: block; margin-top: 4px;">
+          The name of the field in Strapi that stores the main content (e.g., "body", "text", "content", "article"). Check in Content-Type Builder if unsure.
+        </small>
       </div>
       <button class="btn-secondary" id="saveConfig">💾 Save Configuration</button>
+      <button class="btn-secondary" id="testConnection" style="margin-top: 8px;">🔍 Test Connection & Permissions</button>
+      <button class="btn-secondary" id="discoverTypes" style="margin-top: 8px;">🔎 Discover Content Types</button>
     </div>
 
     <!-- Upload Section -->
