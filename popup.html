@@ -146,19 +146,6 @@
       text-align: center;
       padding: 20px;
     }
-    .spinner {
-      border: 3px solid #f3f3f3;
-      border-top: 3px solid #3498db;
-      border-radius: 50%;
-      width: 30px;
-      height: 30px;
-      animation: spin 1s linear infinite;
-      margin: 0 auto;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
   </style>
 </head>
 <body>
@@ -167,7 +154,7 @@
     
     <!-- Configuration Section -->
     <div class="config-section" id="configSection">
-      <h3 style="margin-top: 0; font-size: 16px;">⚙️ Strapi Configuration</h3>
+      <h3 style="margin-top: 0; font-size: 16px;">Strapi Configuration</h3>
       <div class="form-group">
         <label>Strapi Base URL:</label>
         <input type="url" id="strapiUrl" placeholder="https://your-strapi.com or http://localhost:1337" />
@@ -186,19 +173,19 @@
         <label>Collection Type (singular):</label>
         <input type="text" id="collectionType" placeholder="blog-post" value="blog-post" />
         <small style="color: #666; font-size: 11px; display: block; margin-top: 4px;">
-          The singular name of your content type. Final API endpoint will be: {Base URL}/api/{Collection Type}
+          The singular name of your content type (e.g., "blog-post"). Strapi v5 will use plural endpoint: /api/blog-posts
         </small>
       </div>
       <div class="form-group">
         <label>Content Field Name:</label>
         <input type="text" id="contentFieldName" placeholder="body" value="content" />
         <small style="color: #666; font-size: 11px; display: block; margin-top: 4px;">
-          The name of the field in Strapi that stores the main content (e.g., "body", "text", "content", "article"). Check in Content-Type Builder if unsure.
+          The name of the richtext field in Strapi that stores the HTML content (default: "content"). Check in Content-Type Builder if unsure.
         </small>
       </div>
-      <button class="btn-secondary" id="saveConfig">💾 Save Configuration</button>
-      <button class="btn-secondary" id="testConnection" style="margin-top: 8px;">🔍 Test Connection & Permissions</button>
-      <button class="btn-secondary" id="discoverTypes" style="margin-top: 8px;">🔎 Discover Content Types</button>
+      <button class="btn-secondary" id="saveConfig">Save Configuration</button>
+      <button class="btn-secondary" id="testConnection" style="margin-top: 8px;">Test Connection & Permissions</button>
+      <button class="btn-secondary" id="discoverTypes" style="margin-top: 8px;">Discover Content Types</button>
     </div>
 
     <!-- Upload Section -->
@@ -206,7 +193,7 @@
       <div class="file-input-wrapper">
         <input type="file" id="docxFile" accept=".docx" />
         <label for="docxFile" class="file-input-label">
-          📄 Click to select DOCX file
+          Click to select DOCX file
         </label>
       </div>
       <div class="file-name" id="fileName"></div>
@@ -214,7 +201,7 @@
 
     <!-- Metadata Form (hidden initially) -->
     <div id="metadataSection" class="hidden">
-      <h3 style="font-size: 16px; margin-bottom: 10px;">✏️ Edit Metadata</h3>
+      <h3 style="font-size: 16px; margin-bottom: 10px;">Edit Metadata</h3>
       <div class="form-group">
         <label>Title:</label>
         <input type="text" id="title" />
@@ -240,12 +227,12 @@
         <input type="text" id="publishAt" placeholder="2024-12-25T10:00:00.000Z" />
       </div>
       
-      <button class="btn-primary" id="publishBtn">🚀 Publish to Strapi</button>
+      <button class="btn-primary" id="publishBtn">Publish to Strapi</button>
     </div>
 
     <!-- Preview Section -->
     <div id="previewSection" class="hidden">
-      <h3 style="font-size: 16px;">👁️ Content Preview</h3>
+      <h3 style="font-size: 16px;">Content Preview</h3>
       <div class="preview" id="contentPreview"></div>
     </div>
 
@@ -254,7 +241,6 @@
     
     <!-- Loading Indicator -->
     <div id="loading" class="loading hidden">
-      <div class="spinner"></div>
       <p>Processing...</p>
     </div>
   </div>

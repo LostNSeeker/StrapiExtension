@@ -46,8 +46,8 @@ function showDetailedError(message, endpoint, status) {
   // Build troubleshooting tips based on status code
   let troubleshootingTips = '';
   if (status === 403) {
-    troubleshootingTips = '\n\n🔧 Troubleshooting 403 (Forbidden / Policy Failed):\n' +
-      '⚠️ This could be a permissions issue OR a policy blocking the request.\n\n' +
+    troubleshootingTips = '\n\nTroubleshooting 403 (Forbidden / Policy Failed):\n' +
+      'This could be a permissions issue OR a policy blocking the request.\n\n' +
       'STEP 1: Check API Token Permissions\n' +
       '  1. Go to Strapi Admin → Settings → API Tokens\n' +
       '  2. Click on your API token to edit it\n' +
@@ -68,8 +68,8 @@ function showDetailedError(message, endpoint, status) {
       '  - Test endpoint: ' + endpoint + '\n' +
       '  - Try GET request in browser (should return 200, 401, or 403, not 404)';
   } else if (status === 405) {
-    troubleshootingTips = '\n\n🔧 Troubleshooting 405 (Method Not Allowed):\n' +
-      '⚠️ This error means the endpoint exists but POST method is not allowed.\n' +
+    troubleshootingTips = '\n\nTroubleshooting 405 (Method Not Allowed):\n' +
+      'This error means the endpoint exists but POST method is not allowed.\n' +
       'This is ALWAYS a PERMISSIONS issue, not an endpoint format issue.\n\n' +
       'STEP 1: Check API Token Permissions\n' +
       '  1. Go to Strapi Admin → Settings → API Tokens\n' +
@@ -88,19 +88,19 @@ function showDetailedError(message, endpoint, status) {
       '  - Test endpoint: ' + endpoint + '\n' +
       '  - Try GET request in browser (should return 200, 401, or 403, not 404)';
   } else if (status === 401 || status === 403) {
-    troubleshootingTips = '\n\n🔧 Troubleshooting Authentication:\n' +
+    troubleshootingTips = '\n\nTroubleshooting Authentication:\n' +
       '1. Verify your API Token is correct\n' +
       '2. Check token permissions in Strapi (Settings → API Tokens)\n' +
       '3. Ensure token has "Create" permission for this content type';
   } else if (status === 404) {
-    troubleshootingTips = '\n\n🔧 Troubleshooting 404 (Not Found):\n' +
+    troubleshootingTips = '\n\nTroubleshooting 404 (Not Found):\n' +
       '1. Verify the Collection Type name matches your Strapi content type\n' +
       '2. Check the Strapi Base URL is correct\n' +
       '3. Ensure the content type exists in Strapi';
   }
   
   // Show error with details
-  const errorMsg = `❌ Error (${status})\n\n${message}${troubleshootingTips}\n\n💡 Open browser console (F12 → Console tab) for detailed logs.`;
+  const errorMsg = `Error (${status})\n\n${message}${troubleshootingTips}\n\nOpen browser console (F12 → Console tab) for detailed logs.`;
   statusDiv.textContent = errorMsg;
   statusDiv.className = 'status error';
   statusDiv.classList.remove('hidden');
@@ -190,9 +190,10 @@ testConnectionBtn.addEventListener('click', async () => {
   }
   
   try {
+    // Strapi v5 uses plural endpoints by default
     const endpoints = [
-      `${config.strapiUrl}/api/${config.collectionType}`,
-      `${config.strapiUrl}/api/${config.collectionType}s`
+      `${config.strapiUrl}/api/${config.collectionType}s`,  // Plural (Strapi v5 default)
+      `${config.strapiUrl}/api/${config.collectionType}`    // Singular (backward compatibility)
     ];
     
     let testResults = [];
@@ -215,6 +216,7 @@ testConnectionBtn.addEventListener('click', async () => {
         // Test POST request (to check permissions)
         let postStatus = 'N/A';
         let postStatusText = 'N/A';
+        let postErrorDetails = '';
         try {
           const postResponse = await fetch(endpoint, {
             method: 'POST',
@@ -226,6 +228,16 @@ testConnectionBtn.addEventListener('click', async () => {
           });
           postStatus = postResponse.status;
           postStatusText = postResponse.statusText;
+          
+          // If 405, try to get more details
+          if (postResponse.status === 405) {
+            try {
+              const errorText = await postResponse.text();
+              postErrorDetails = errorText.substring(0, 200); // First 200 chars
+            } catch (e) {
+              // Ignore
+            }
+          }
         } catch (postError) {
           postStatus = 'Error';
           postStatusText = postError.message;
@@ -237,6 +249,7 @@ testConnectionBtn.addEventListener('click', async () => {
           getStatusText: getStatusText,
           postStatus: postStatus,
           postStatusText: postStatusText,
+          postErrorDetails: postErrorDetails,
           exists: getStatus !== 404,
           canCreate: postStatus === 200 || postStatus === 201
         });
@@ -250,27 +263,37 @@ testConnectionBtn.addEventListener('click', async () => {
     }
     
     // Build result message
-    let resultMessage = '🔍 Connection Test Results:\n\n';
+    let resultMessage = 'Connection Test Results:\n\n';
     
     testResults.forEach((result, index) => {
       resultMessage += `Endpoint ${index + 1}: ${result.endpoint}\n`;
       if (result.error) {
-        resultMessage += `  ❌ Error: ${result.error}\n`;
+        resultMessage += `  Error: ${result.error}\n`;
       } else {
         resultMessage += `  GET: ${result.getStatus} ${result.getStatusText}\n`;
         resultMessage += `  POST: ${result.postStatus} ${result.postStatusText}\n`;
         
         if (!result.exists) {
-          resultMessage += `  ⚠️ Endpoint does not exist (404)\n`;
+          resultMessage += `  Endpoint does not exist (404)\n`;
         } else if (result.canCreate) {
-          resultMessage += `  ✅ POST is allowed! This endpoint should work.\n`;
+          resultMessage += `  POST is allowed! This endpoint should work.\n`;
         } else if (result.postStatus === 400) {
-          resultMessage += `  ⚠️ POST works but data format is wrong (400 Bad Request)\n`;
-          resultMessage += `  ✅ Good news: POST is allowed! Just need to fix the data format.\n`;
+          resultMessage += `  POST works but data format is wrong (400 Bad Request)\n`;
+          resultMessage += `  Good news: POST is allowed! Just need to fix the data format.\n`;
         } else if (result.postStatus === 405) {
-          resultMessage += `  ❌ POST not allowed (405) - PERMISSIONS ISSUE\n`;
+          resultMessage += `  POST not allowed (405) - PERMISSIONS ISSUE\n`;
+          if (result.postErrorDetails) {
+            resultMessage += `  Error details: ${result.postErrorDetails}\n`;
+          }
+          resultMessage += `  Even with "Full access" token, you're getting 405.\n`;
+          resultMessage += `  This might mean:\n`;
+          resultMessage += `  1. Token is not actually "Full access" - double check in Strapi\n`;
+          resultMessage += `  2. Token value is wrong - copy it again from Strapi\n`;
+          resultMessage += `  3. Strapi version issue - try restarting Strapi\n`;
+          resultMessage += `  4. Wrong endpoint - endpoint might not support POST\n`;
         } else if (result.postStatus === 401 || result.postStatus === 403) {
-          resultMessage += `  ⚠️ Authentication issue (${result.postStatus})\n`;
+          resultMessage += `  Authentication issue (${result.postStatus})\n`;
+          resultMessage += `  Check: Is your API token correct? Is it "Full access"?\n`;
         }
       }
       resultMessage += '\n';
@@ -283,9 +306,9 @@ testConnectionBtn.addEventListener('click', async () => {
     const canCreateAny = testResults.some(r => r.canCreate);
     
     if (canCreateAny) {
-      resultMessage += '✅ At least one endpoint allows POST. You should be able to publish!\n';
+      resultMessage += 'At least one endpoint allows POST. You should be able to publish!\n';
     } else if (has400 && hasValidEndpoint) {
-      resultMessage += '⚠️ DATA FORMAT ISSUE DETECTED:\n';
+      resultMessage += 'DATA FORMAT ISSUE DETECTED:\n';
       resultMessage += 'Good news: POST is allowed! The endpoint works.\n';
       resultMessage += 'Bad news: The request data format is incorrect.\n\n';
       resultMessage += 'This usually means:\n';
@@ -299,17 +322,53 @@ testConnectionBtn.addEventListener('click', async () => {
       resultMessage += '4. Check field names match exactly (case-sensitive)\n';
       resultMessage += '5. Ensure field types match (text, richtext, etc.)\n';
     } else if (has405 && hasValidEndpoint) {
-      resultMessage += '❌ PERMISSIONS ISSUE DETECTED:\n';
+      resultMessage += 'PERMISSIONS ISSUE DETECTED:\n';
       resultMessage += 'The endpoint exists but POST is not allowed.\n\n';
-      resultMessage += 'To fix:\n';
-      resultMessage += '1. Strapi Admin → Settings → API Tokens → Edit your token\n';
-      resultMessage += '2. Set Token type to "Full access" OR enable "Create" for your content type\n';
-      resultMessage += '3. Settings → Users & Permissions → Roles → Public/Authenticated\n';
-      resultMessage += '4. Enable "create" permission for "' + config.collectionType + '"';
+      resultMessage += 'IMPORTANT: Admin panel permissions ≠ API permissions!\n';
+      resultMessage += 'Your user roles (Editor, Super Admin, Author) control the ADMIN PANEL.\n';
+      resultMessage += 'API access is controlled by:\n';
+      resultMessage += '  1. API Token permissions\n';
+      resultMessage += '  2. Public/Authenticated role permissions\n\n';
+      resultMessage += 'STEP 1: Verify API Token is "Full Access"\n';
+      resultMessage += '  IMPORTANT: With "Full access" token, you DON\'T need to see "create" checkbox!\n';
+      resultMessage += '  The token bypasses all permissions automatically.\n\n';
+      resultMessage += '  To verify your token:\n';
+      resultMessage += '  1. Go to: Settings → API Tokens\n';
+      resultMessage += '  2. Click on your API token\n';
+      resultMessage += '  3. Check that "Token type" shows "Full access"\n';
+      resultMessage += '  4. If it says "Custom" or something else, change it to "Full access"\n';
+      resultMessage += '  5. Click "Save"\n';
+      resultMessage += '  6. Copy the token value again (it might have changed)\n';
+      resultMessage += '  7. Paste it into the extension\'s "API Token" field\n';
+      resultMessage += '  8. Click "Save Configuration" in the extension\n\n';
+      resultMessage += '  You DON\'T need to look for "create" checkbox anywhere!\n';
+      resultMessage += '     "Full access" token works without it.\n\n';
+      resultMessage += 'STEP 2: Use "Full Access" API Token (RECOMMENDED)\n';
+      resultMessage += '  If "create" checkbox is not showing, use this method:\n';
+      resultMessage += '  1. Go to: Settings → API Tokens\n';
+      resultMessage += '  2. Click on your API token (or create a new one)\n';
+      resultMessage += '  3. Under "Token type", select "Full access"\n';
+      resultMessage += '  4. Click "Save"\n';
+      resultMessage += '  5. This bypasses ALL content type permissions\n';
+      resultMessage += '  6. Test again - should work immediately!\n\n';
+      resultMessage += 'STEP 3: Alternative - Fix Content Type Permissions\n';
+      resultMessage += '  (Only needed if you can\'t use Full access token)\n';
+      resultMessage += '  1. Go to: Settings → Users & Permissions Plugin → Roles\n';
+      resultMessage += '  2. Click on "Public" (for public API access)\n';
+      resultMessage += '  3. Look for "' + config.collectionType + '" in the list\n';
+      resultMessage += '  4. If you only see "find" and "update":\n';
+      resultMessage += '     - This might be a Strapi UI bug\n';
+      resultMessage += '     - Try refreshing the page\n';
+      resultMessage += '     - Try restarting Strapi\n';
+      resultMessage += '     - Check Strapi version (might need update)\n';
+      resultMessage += '  5. If "create" appears, check it and click "Save"\n\n';
+      resultMessage += 'IMPORTANT: "Full access" token is the EASIEST solution!\n';
+      resultMessage += '   It works even if "create" checkbox doesn\'t show.\n';
+      resultMessage += '   Just set your API token to "Full access" and you\'re done.';
     } else if (!hasValidEndpoint) {
-      resultMessage += '❌ No valid endpoints found (404 on both endpoints).\n\n';
+      resultMessage += 'No valid endpoints found (404 on both endpoints).\n\n';
       resultMessage += 'This means the collection type name is incorrect.\n\n';
-      resultMessage += '💡 SOLUTION: Click "🔎 Discover Content Types" button above\n';
+      resultMessage += 'SOLUTION: Click "Discover Content Types" button above\n';
       resultMessage += '   to automatically find the correct collection type name.\n\n';
       resultMessage += 'Or manually check:\n';
       resultMessage += '1. Strapi Admin → Content Manager → Look at left sidebar\n';
@@ -330,7 +389,7 @@ testConnectionBtn.addEventListener('click', async () => {
     
   } catch (error) {
     showLoading(false);
-    showStatus(`❌ Test failed: ${error.message}`, 'error');
+    showStatus(`Test failed: ${error.message}`, 'error');
     console.error('Test connection error:', error);
   }
 });
@@ -425,7 +484,7 @@ discoverTypesBtn.addEventListener('click', async () => {
     }
     
     // Build result message
-    let resultMessage = '🔎 Discovered Content Types:\n\n';
+    let resultMessage = 'Discovered Content Types:\n\n';
     
     if (discoveredTypes.length > 0) {
       resultMessage += 'Found the following content types:\n\n';
@@ -433,18 +492,18 @@ discoverTypesBtn.addEventListener('click', async () => {
         resultMessage += `${index + 1}. ${type.name} (${type.uid})\n`;
         if (type.status) {
           if (type.status === 403) {
-            resultMessage += `   ✅ Endpoint exists! Status: 403 (Forbidden - permissions issue)\n`;
-            resultMessage += `   💡 This is the correct name, but you need to fix permissions.\n`;
+            resultMessage += `   Endpoint exists! Status: 403 (Forbidden - permissions issue)\n`;
+            resultMessage += `   This is the correct name, but you need to fix permissions.\n`;
           } else if (type.status === 401) {
-            resultMessage += `   ⚠️ Status: 401 (Unauthorized - check API token)\n`;
+            resultMessage += `   Status: 401 (Unauthorized - check API token)\n`;
           } else if (type.status === 200) {
-            resultMessage += `   ✅ Status: 200 (Perfect! Endpoint works)\n`;
+            resultMessage += `   Status: 200 (Perfect! Endpoint works)\n`;
           } else {
             resultMessage += `   Status: ${type.status}\n`;
           }
         }
       });
-      resultMessage += '\n💡 Copy one of these names and paste it into "Collection Type" field.\n';
+      resultMessage += '\nCopy one of these names and paste it into "Collection Type" field.\n';
       resultMessage += '   Use the singular form (e.g., "blog-post" not "blog-posts").\n';
       
       // If we found types with 403, provide specific guidance
@@ -508,11 +567,25 @@ docxFileInput.addEventListener('change', async (e) => {
   
   try {
     await parseDocxFile(file);
+    
+    // If title is still empty after parsing, use filename as fallback
+    if (!titleInput.value || titleInput.value.trim() === '') {
+      const fileNameWithoutExt = file.name.replace(/\.docx?$/i, '').trim();
+      if (fileNameWithoutExt) {
+        titleInput.value = fileNameWithoutExt;
+        console.log('📝 Using filename as title fallback:', fileNameWithoutExt);
+      }
+    }
+    
     showLoading(false);
     showStatus('Document parsed successfully! Review and edit metadata below.', 'success');
     metadataSection.classList.remove('hidden');
     previewSection.classList.remove('hidden');
+    
+    // Scroll to metadata section to make it visible
+    metadataSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } catch (error) {
+    console.error('❌ Error parsing document:', error);
     showLoading(false);
     showStatus(`Error parsing document: ${error.message}`, 'error');
   }
@@ -520,6 +593,7 @@ docxFileInput.addEventListener('change', async (e) => {
 
 // Parse DOCX file
 async function parseDocxFile(file) {
+  console.log('📄 Starting to parse DOCX file:', file.name);
   const arrayBuffer = await file.arrayBuffer();
   
   // Parse with mammoth
@@ -536,9 +610,18 @@ async function parseDocxFile(file) {
   );
   
   let htmlContent = result.value;
+  console.log('DOCX converted to HTML, length:', htmlContent.length);
+  console.log('First 500 chars of HTML:', htmlContent.substring(0, 500));
+  
+  // Extract headings before removing metadata (for title fallback)
+  const tempDivForHeadings = document.createElement('div');
+  tempDivForHeadings.innerHTML = htmlContent;
+  const headings = tempDivForHeadings.querySelectorAll('h1, h2, h3');
+  console.log('Found headings:', headings.length);
   
   // Extract metadata from the beginning of the document
   extractedMetadata = extractMetadataFromContent(htmlContent);
+  console.log('Extracted metadata:', extractedMetadata);
   
   // Remove metadata section from content
   htmlContent = removeMetadataSection(htmlContent);
@@ -551,20 +634,102 @@ async function parseDocxFile(file) {
   // Store parsed content
   parsedContent = htmlContent;
   
-  // Populate form fields
-  titleInput.value = extractedMetadata.title || '';
-  metaTitleInput.value = extractedMetadata.metaTitle || extractedMetadata.title || '';
-  metaDescInput.value = extractedMetadata.metaDescription || '';
-  metaKeywordsInput.value = extractedMetadata.metaKeywords || '';
-  canonicalUrlInput.value = extractedMetadata.canonicalUrl || '';
-  publishAtInput.value = extractedMetadata.publishAt || '';
+  // Populate form fields - with validation and logging
+  console.log('Populating form fields...');
+  console.log('  - Title input element exists:', !!titleInput);
+  console.log('  - Extracted metadata:', extractedMetadata);
+  
+  // Validate all required DOM elements exist
+  const requiredElements = {
+    titleInput,
+    metaTitleInput,
+    metaDescInput,
+    metaKeywordsInput,
+    canonicalUrlInput,
+    publishAtInput,
+    contentPreview
+  };
+  
+  const missingElements = Object.entries(requiredElements)
+    .filter(([name, element]) => !element)
+    .map(([name]) => name);
+  
+  if (missingElements.length > 0) {
+    console.error('Missing DOM elements:', missingElements);
+    throw new Error(`Missing required DOM elements: ${missingElements.join(', ')}`);
+  }
+  
+  // Populate title field - ensure it's always set
+  let titleValue = extractedMetadata.title || '';
+  
+  // If title is still empty, try to extract from first heading
+  if (!titleValue && headings.length > 0) {
+    const firstHeading = headings[0].textContent.trim();
+    if (firstHeading) {
+      titleValue = firstHeading;
+      console.log('  - Using first heading as title:', titleValue);
+    }
+  }
+  
+  // Set title field
+  if (titleInput) {
+    titleInput.value = titleValue;
+    console.log('  - Title field set to:', titleInput.value || '(empty)');
+  }
+  
+  // Populate meta title (use title as fallback)
+  const metaTitleValue = extractedMetadata.metaTitle || titleValue || '';
+  if (metaTitleInput) {
+    metaTitleInput.value = metaTitleValue;
+    console.log('  - Meta Title field set to:', metaTitleInput.value || '(empty)');
+  }
+  
+  // Populate meta description
+  if (metaDescInput) {
+    metaDescInput.value = extractedMetadata.metaDescription || '';
+    console.log('  - Meta Description field set to:', metaDescInput.value || '(empty)');
+  }
+  
+  // Populate meta keywords
+  if (metaKeywordsInput) {
+    metaKeywordsInput.value = extractedMetadata.metaKeywords || '';
+    console.log('  - Meta Keywords field set to:', metaKeywordsInput.value || '(empty)');
+  }
+  
+  // Populate canonical URL
+  if (canonicalUrlInput) {
+    canonicalUrlInput.value = extractedMetadata.canonicalUrl || '';
+    console.log('  - Canonical URL field set to:', canonicalUrlInput.value || '(empty)');
+  }
+  
+  // Populate publish at
+  if (publishAtInput) {
+    publishAtInput.value = extractedMetadata.publishAt || '';
+    console.log('  - Publish At field set to:', publishAtInput.value || '(empty)');
+  }
+  
+  // Visual feedback: highlight fields that were populated
+  if (titleValue && titleInput) {
+    titleInput.style.borderColor = '#4CAF50';
+    setTimeout(() => { if (titleInput) titleInput.style.borderColor = ''; }, 2000);
+  }
+  if (metaTitleValue && metaTitleInput) {
+    metaTitleInput.style.borderColor = '#4CAF50';
+    setTimeout(() => { if (metaTitleInput) metaTitleInput.style.borderColor = ''; }, 2000);
+  }
   
   // Show preview
-  contentPreview.innerHTML = parsedContent;
+  if (contentPreview) {
+    contentPreview.innerHTML = parsedContent;
+    console.log('Preview updated');
+  }
+  
+  console.log('Document parsing complete!');
 }
 
 // Extract metadata from document content
 function extractMetadataFromContent(html) {
+  console.log('🔍 Starting metadata extraction...');
   const metadata = {
     title: '',
     metaTitle: '',
@@ -578,35 +743,94 @@ function extractMetadataFromContent(html) {
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = html;
   
-  // Look for metadata in the first few paragraphs
+  // Debug: Log structure
   const paragraphs = tempDiv.querySelectorAll('p');
-  const metadataPattern = /^(title|metaTitle|metaDescription|metaKeywords|canonicalUrl|canonicalURL|publishAt):\s*(.+)$/i;
+  const headings = tempDiv.querySelectorAll('h1, h2, h3');
+  console.log(`📊 Document structure: ${paragraphs.length} paragraphs, ${headings.length} headings`);
   
-  for (let i = 0; i < Math.min(15, paragraphs.length); i++) {
+  // Look for metadata in the first few paragraphs (expanded to 50 for better coverage)
+  // Support multiple formats:
+  // 1. "title: value"
+  // 2. "Title: value"
+  // 3. "TITLE: value"
+  // 4. "title - value"
+  // 5. "Title | value"
+  const metadataPatterns = [
+    /^(title|metaTitle|metaDescription|metaKeywords|canonicalUrl|canonicalURL|publishAt)[:\-\|]\s*(.+)$/i,
+    /^(title|metaTitle|metaDescription|metaKeywords|canonicalUrl|canonicalURL|publishAt)\s*=\s*(.+)$/i
+  ];
+  
+  for (let i = 0; i < Math.min(50, paragraphs.length); i++) {
     const text = paragraphs[i].textContent.trim();
-    const match = text.match(metadataPattern);
     
-    if (match) {
-      const key = match[1].toLowerCase();
-      const value = match[2].trim();
+    // Try each pattern
+    for (const pattern of metadataPatterns) {
+      const match = text.match(pattern);
       
-      // Normalize key names
-      if (key === 'canonicalurl') {
-        metadata.canonicalUrl = value;
-      } else if (key === 'metatitle') {
-        metadata.metaTitle = value;
-      } else if (key === 'metadescription') {
-        metadata.metaDescription = value;
-      } else if (key === 'metakeywords') {
-        metadata.metaKeywords = value;
-      } else if (key === 'publishat') {
-        metadata.publishAt = value;
-      } else {
-        metadata[key] = value;
+      if (match) {
+        const key = match[1].toLowerCase();
+        const value = match[2].trim();
+        console.log(`Found metadata: ${key} = ${value.substring(0, 50)}...`);
+        
+        // Normalize key names
+        if (key === 'canonicalurl') {
+          metadata.canonicalUrl = value;
+        } else if (key === 'metatitle') {
+          metadata.metaTitle = value;
+        } else if (key === 'metadescription') {
+          metadata.metaDescription = value;
+        } else if (key === 'metakeywords') {
+          metadata.metaKeywords = value;
+        } else if (key === 'publishat') {
+          metadata.publishAt = value;
+        } else if (key === 'title') {
+          metadata.title = value;
+        }
+        break; // Found a match, move to next paragraph
       }
     }
   }
   
+  // Fallback: If title is still empty, try to extract from first heading (h1, h2, h3)
+  if (!metadata.title || metadata.title.trim() === '') {
+    console.log('🔍 Title not found in metadata, trying headings...');
+    if (headings.length > 0) {
+      const firstHeading = headings[0].textContent.trim();
+      if (firstHeading) {
+        metadata.title = firstHeading;
+        console.log('✅ Extracted title from first heading:', metadata.title);
+      }
+    } else {
+      console.log('⚠️ No headings found in document');
+    }
+  }
+  
+  // Fallback: If still no title, use first paragraph (truncated to 100 chars)
+  if (!metadata.title || metadata.title.trim() === '') {
+    console.log('🔍 Title still not found, trying first paragraph...');
+    const firstParagraph = tempDiv.querySelector('p');
+    if (firstParagraph) {
+      const text = firstParagraph.textContent.trim();
+      if (text && text.length > 0) {
+        // Skip if it looks like metadata (contains colon)
+        if (!text.includes(':')) {
+          metadata.title = text.length > 100 ? text.substring(0, 100) + '...' : text;
+          console.log('✅ Extracted title from first paragraph:', metadata.title);
+        } else {
+          console.log('⚠️ First paragraph looks like metadata, skipping');
+        }
+      }
+    }
+  }
+  
+  // Final fallback: Use document filename (without extension) as title
+  if (!metadata.title || metadata.title.trim() === '') {
+    console.log('🔍 Title still not found, using fallback...');
+    // This will be handled by the caller if needed
+    console.log('⚠️ No title could be extracted from document');
+  }
+  
+  console.log('📊 Final extracted metadata:', metadata);
   return metadata;
 }
 
@@ -670,10 +894,33 @@ publishBtn.addEventListener('click', async () => {
       data: {}
     };
     
-    // Add title (required)
-    if (titleInput.value.trim()) {
-      blogData.data.title = titleInput.value.trim();
+    // Add title (required) - always include it, validate it's not empty
+    let titleValue = titleInput.value.trim();
+    
+    // Fallback: If title is still empty, try to use filename or a default
+    if (!titleValue) {
+      // Try to get filename from the file input
+      const file = docxFileInput.files[0];
+      if (file) {
+        const fileNameWithoutExt = file.name.replace(/\.docx?$/i, '').trim();
+        if (fileNameWithoutExt) {
+          titleValue = fileNameWithoutExt;
+          titleInput.value = titleValue; // Update the input field
+          console.log('⚠️ Title was empty, using filename as fallback:', titleValue);
+        }
+      }
     }
+    
+    // Final check: if still empty, use a default
+    if (!titleValue) {
+      titleValue = 'Untitled Post';
+      titleInput.value = titleValue; // Update the input field
+      console.log('⚠️ Title was empty, using default:', titleValue);
+    }
+    
+    // Always include title - it's required by Strapi
+    blogData.data.title = titleValue;
+    console.log('✅ Title included in request:', titleValue);
     
     // Add content field (use configured field name, default to 'content')
     let contentFieldName = config.contentFieldName || 'content';
@@ -705,11 +952,11 @@ publishBtn.addEventListener('click', async () => {
     console.log('📦 Data being sent to Strapi:', JSON.stringify(blogData, null, 2));
     
     // Make API request to Strapi
-    // Based on test results, try plural first if singular was 404
-    // Strapi v4 typically uses singular, but some setups use plural
+    // Strapi v5 uses plural endpoints by default (e.g., /api/blog-posts)
+    // Try plural first, then singular for backward compatibility
     const endpoints = [
-      `${config.strapiUrl}/api/${config.collectionType}s`,  // Plural (often works)
-      `${config.strapiUrl}/api/${config.collectionType}`   // Singular (Strapi v4)
+      `${config.strapiUrl}/api/${config.collectionType}s`,  // Plural (Strapi v5 default)
+      `${config.strapiUrl}/api/${config.collectionType}`   // Singular (backward compatibility)
     ];
     
     // First, test which endpoint exists with a GET request
@@ -832,7 +1079,7 @@ publishBtn.addEventListener('click', async () => {
           console.log('📄 Error response content-type:', contentType);
           
           if (contentType && contentType.includes('application/json')) {
-            const errorData = await response.json();
+      const errorData = await response.json();
             console.error('❌ Error data:', errorData);
             
             // Check for PolicyError (Policy Failed)
@@ -992,8 +1239,11 @@ publishBtn.addEventListener('click', async () => {
     console.log('✅ Success:', result);
     
     showLoading(false);
+    // Handle both Strapi v4 and v5 response formats
+    const postId = result.data?.id || result.data?.attributes?.id || 'unknown';
+    const postTitle = result.data?.attributes?.title || result.data?.title || 'Blog Post';
     showStatus(
-      `✅ Blog post created successfully! ID: ${result.data.id}`,
+      `✅ Blog post created successfully!\nID: ${postId}\nTitle: ${postTitle}`,
       'success'
     );
     
