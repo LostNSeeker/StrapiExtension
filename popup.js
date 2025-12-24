@@ -566,24 +566,11 @@ docxFileInput.addEventListener('change', async (e) => {
   showLoading(true);
   
   try {
+    // Parse and auto-publish (handled inside parseDocxFile)
     await parseDocxFile(file);
     
-    // If title is still empty after parsing, use filename as fallback
-    if (!titleInput.value || titleInput.value.trim() === '') {
-      const fileNameWithoutExt = file.name.replace(/\.docx?$/i, '').trim();
-      if (fileNameWithoutExt) {
-        titleInput.value = fileNameWithoutExt;
-        console.log('📝 Using filename as title fallback:', fileNameWithoutExt);
-      }
-    }
-    
-    showLoading(false);
-    showStatus('Document parsed successfully! Review and edit metadata below.', 'success');
-    metadataSection.classList.remove('hidden');
-    previewSection.classList.remove('hidden');
-    
-    // Scroll to metadata section to make it visible
-    metadataSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // Preview will be shown in parseDocxFile if needed
+    // Auto-publish is also handled there
   } catch (error) {
     console.error('❌ Error parsing document:', error);
     showLoading(false);
@@ -595,6 +582,22 @@ docxFileInput.addEventListener('change', async (e) => {
 async function parseDocxFile(file) {
   console.log('📄 Starting to parse DOCX file:', file.name);
   const arrayBuffer = await file.arrayBuffer();
+  
+  // First, try to extract form fields from raw DOCX XML
+  try {
+    extractedMetadata = await extractFormFieldsFromDocx(arrayBuffer);
+    console.log('✅ Extracted form fields from DOCX:', extractedMetadata);
+  } catch (error) {
+    console.log('⚠️ Could not extract form fields from XML, will try HTML parsing:', error);
+    extractedMetadata = {
+      title: '',
+      metaTitle: '',
+      metaDescription: '',
+      metaKeywords: '',
+      canonicalUrl: '',
+      publishAt: ''
+    };
+  }
   
   // Parse with mammoth
   const result = await mammoth.convertToHtml(
@@ -611,7 +614,12 @@ async function parseDocxFile(file) {
   
   let htmlContent = result.value;
   console.log('DOCX converted to HTML, length:', htmlContent.length);
-  console.log('First 500 chars of HTML:', htmlContent.substring(0, 500));
+  console.log('First 1000 chars of HTML:', htmlContent.substring(0, 1000));
+  
+  // Also log the raw text to see what we're working with
+  const rawTextResult = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+  const rawText = rawTextResult.value;
+  console.log('📄 First 1000 chars of raw text:', rawText.substring(0, 1000));
   
   // Extract headings before removing metadata (for title fallback)
   const tempDivForHeadings = document.createElement('div');
@@ -619,12 +627,36 @@ async function parseDocxFile(file) {
   const headings = tempDivForHeadings.querySelectorAll('h1, h2, h3');
   console.log('Found headings:', headings.length);
   
-  // Extract metadata from the beginning of the document
-  extractedMetadata = extractMetadataFromContent(htmlContent);
-  console.log('Extracted metadata:', extractedMetadata);
+  // ALWAYS try HTML parsing to extract metadata (more reliable than raw text)
+  // Extract metadata from HTML BEFORE any content modification
+  const htmlMetadata = extractMetadataFromContent(htmlContent);
+  console.log('📋 Extracted metadata from HTML:', htmlMetadata);
   
-  // Remove metadata section from content
+  // Merge HTML metadata with form field metadata (form fields take precedence, but HTML fills gaps)
+  if (!extractedMetadata) {
+    extractedMetadata = {};
+  }
+  
+  // Merge: use extractedMetadata if it has values, otherwise use htmlMetadata
+  extractedMetadata = {
+    title: extractedMetadata.title || htmlMetadata.title || '',
+    metaTitle: extractedMetadata.metaTitle || htmlMetadata.metaTitle || '',
+    metaDescription: extractedMetadata.metaDescription || htmlMetadata.metaDescription || '',
+    metaKeywords: extractedMetadata.metaKeywords || htmlMetadata.metaKeywords || '',
+    canonicalUrl: extractedMetadata.canonicalUrl || htmlMetadata.canonicalUrl || '',
+    publishAt: extractedMetadata.publishAt || htmlMetadata.publishAt || ''
+  };
+  
+  console.log('📋 Final merged metadata:', extractedMetadata);
+  
+  // Extract content between "Introduction" and "Disclaimer" (or "Final Thoughts" to "Disclaimer")
+  htmlContent = extractContentSection(htmlContent);
+  
+  // Remove metadata section from content (URL, Meta-Title, etc.)
   htmlContent = removeMetadataSection(htmlContent);
+  
+  // Clean content: Remove heading tags (h1, h2, h3) and convert to plain text
+  htmlContent = cleanContent(htmlContent);
   
   // Handle images - replace with placeholders
   htmlContent = handleImages(htmlContent);
@@ -634,97 +666,524 @@ async function parseDocxFile(file) {
   // Store parsed content
   parsedContent = htmlContent;
   
-  // Populate form fields - with validation and logging
-  console.log('Populating form fields...');
-  console.log('  - Title input element exists:', !!titleInput);
-  console.log('  - Extracted metadata:', extractedMetadata);
+  // Populate form fields (for display only, but we'll auto-publish)
+  console.log('📋 Populating form fields...');
+  console.log('📋 Extracted metadata summary:', {
+    title: extractedMetadata.title || '(empty)',
+    metaTitle: extractedMetadata.metaTitle || '(empty)',
+    metaDescription: extractedMetadata.metaDescription ? extractedMetadata.metaDescription.substring(0, 50) + '...' : '(empty)',
+    metaKeywords: extractedMetadata.metaKeywords || '(empty)',
+    canonicalUrl: extractedMetadata.canonicalUrl || '(empty)',
+    publishAt: extractedMetadata.publishAt || '(empty)'
+  }); 
   
-  // Validate all required DOM elements exist
-  const requiredElements = {
-    titleInput,
-    metaTitleInput,
-    metaDescInput,
-    metaKeywordsInput,
-    canonicalUrlInput,
-    publishAtInput,
-    contentPreview
-  };
+  // Populate title field - ensure it's always set and is a string
+  let titleValue = '';
   
-  const missingElements = Object.entries(requiredElements)
-    .filter(([name, element]) => !element)
-    .map(([name]) => name);
-  
-  if (missingElements.length > 0) {
-    console.error('Missing DOM elements:', missingElements);
-    throw new Error(`Missing required DOM elements: ${missingElements.join(', ')}`);
+  // Try to get title from extractedMetadata (handle null, undefined, or empty string)
+  if (extractedMetadata && extractedMetadata.title && typeof extractedMetadata.title === 'string' && extractedMetadata.title.trim()) {
+    titleValue = extractedMetadata.title.trim();
   }
   
-  // Populate title field - ensure it's always set
-  let titleValue = extractedMetadata.title || '';
-  
-  // If title is still empty, try to extract from first heading
+  // If title is still empty, try to extract from first major heading (h1, then h2, then h3)
+  // Skip headings that are "Introduction" or other section markers
   if (!titleValue && headings.length > 0) {
-    const firstHeading = headings[0].textContent.trim();
-    if (firstHeading) {
-      titleValue = firstHeading;
-      console.log('  - Using first heading as title:', titleValue);
+    for (let i = 0; i < headings.length; i++) {
+      const headingText = headings[i].textContent.trim();
+      const headingLower = headingText.toLowerCase();
+      
+      // Skip section markers
+      if (headingLower === 'introduction' || 
+          headingLower === 'disclaimer' || 
+          headingLower === 'final thoughts' ||
+          headingLower === 'references' ||
+          headingLower.startsWith('url:') ||
+          headingLower.startsWith('meta-') ||
+          headingLower.startsWith('image alt:')) {
+        continue;
+      }
+      
+      // Use the first meaningful heading as title
+      if (headingText && headingText.length > 5) {
+        titleValue = headingText;
+        console.log('  - Using first meaningful heading as title:', titleValue);
+        break;
+      }
     }
   }
   
-  // Set title field
-  if (titleInput) {
-    titleInput.value = titleValue;
-    console.log('  - Title field set to:', titleInput.value || '(empty)');
+  // Fallback to filename if still empty
+  if (!titleValue) {
+    const fileNameWithoutExt = file.name.replace(/\.docx?$/i, '').trim();
+    if (fileNameWithoutExt) {
+      titleValue = fileNameWithoutExt;
+      console.log('  - Using filename as title:', titleValue);
+    }
   }
   
-  // Populate meta title (use title as fallback)
-  const metaTitleValue = extractedMetadata.metaTitle || titleValue || '';
-  if (metaTitleInput) {
-    metaTitleInput.value = metaTitleValue;
-    console.log('  - Meta Title field set to:', metaTitleInput.value || '(empty)');
+  // Final fallback: ensure title is never empty
+  if (!titleValue || titleValue.trim() === '') {
+    titleValue = 'Untitled Post';
+    console.log('  - Using default title:', titleValue);
   }
   
-  // Populate meta description
-  if (metaDescInput) {
-    metaDescInput.value = extractedMetadata.metaDescription || '';
-    console.log('  - Meta Description field set to:', metaDescInput.value || '(empty)');
+  // Ensure title is a string
+  titleValue = String(titleValue).trim();
+  if (!titleValue) {
+    titleValue = 'Untitled Post';
   }
   
-  // Populate meta keywords
-  if (metaKeywordsInput) {
-    metaKeywordsInput.value = extractedMetadata.metaKeywords || '';
-    console.log('  - Meta Keywords field set to:', metaKeywordsInput.value || '(empty)');
+  // Store metadata for auto-publish (don't show form) - ensure it's always a string
+  if (!extractedMetadata) {
+    extractedMetadata = {};
   }
+  extractedMetadata.title = titleValue;
+  console.log('  - Final title stored:', extractedMetadata.title, '(type:', typeof extractedMetadata.title, ')');
   
-  // Populate canonical URL
-  if (canonicalUrlInput) {
-    canonicalUrlInput.value = extractedMetadata.canonicalUrl || '';
-    console.log('  - Canonical URL field set to:', canonicalUrlInput.value || '(empty)');
-  }
-  
-  // Populate publish at
-  if (publishAtInput) {
-    publishAtInput.value = extractedMetadata.publishAt || '';
-    console.log('  - Publish At field set to:', publishAtInput.value || '(empty)');
-  }
-  
-  // Visual feedback: highlight fields that were populated
-  if (titleValue && titleInput) {
-    titleInput.style.borderColor = '#4CAF50';
-    setTimeout(() => { if (titleInput) titleInput.style.borderColor = ''; }, 2000);
-  }
-  if (metaTitleValue && metaTitleInput) {
-    metaTitleInput.style.borderColor = '#4CAF50';
-    setTimeout(() => { if (metaTitleInput) metaTitleInput.style.borderColor = ''; }, 2000);
-  }
-  
-  // Show preview
+  // Show preview (metadata form is hidden, auto-publish will happen)
   if (contentPreview) {
     contentPreview.innerHTML = parsedContent;
     console.log('Preview updated');
   }
   
+  // Show preview section
+  previewSection.classList.remove('hidden');
+  
   console.log('Document parsing complete!');
+  
+  // Auto-publish to Strapi (metadata form is hidden)
+  // Note: autoPublishToStrapi handles its own loading state
+  await autoPublishToStrapi();
+}
+
+// Extract form fields from DOCX XML
+async function extractFormFieldsFromDocx(arrayBuffer) {
+  console.log('🔍 Extracting form fields from DOCX XML...');
+  const metadata = {
+    title: '',
+    metaTitle: '',
+    metaDescription: '',
+    metaKeywords: '',
+    canonicalUrl: '',
+    publishAt: '',
+    imageAlt: ''
+  };
+  
+  try {
+    // Get raw text from mammoth
+    const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+    const rawText = result.value;
+    
+    // Also convert to HTML to check for form fields in structured format
+    const htmlResult = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+    const htmlContent = htmlResult.value;
+    
+    // Create a temporary div to parse HTML
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = htmlContent;
+    const paragraphs = tempDiv.querySelectorAll('p');
+    
+    // Look for form fields in both raw text and HTML paragraphs
+    // Form fields might appear as:
+    // 1. "URL: value"
+    // 2. "Meta-Title: value"
+    // 3. "Meta-Description: value"
+    // 4. "Image ALT: value"
+    // etc.
+    
+    // Check first 50 paragraphs for metadata patterns
+    for (let i = 0; i < Math.min(50, paragraphs.length); i++) {
+      const text = paragraphs[i].textContent.trim();
+      
+      // Pattern matching for various formats
+      const patterns = [
+        // URL field
+        /^(url|URL)\s*[:\-=\|]\s*(.+)$/i,
+        // Meta-Title field (with hyphen)
+        /^(meta-title|Meta-Title|metatitle|metaTitle|meta title|Meta Title)\s*[:\-=\|]\s*(.+)$/i,
+        // Meta-Description field (with hyphen)
+        /^(meta-description|Meta-Description|metadescription|metaDescription|meta description|Meta Description)\s*[:\-=\|]\s*(.+)$/i,
+        // Meta-Keywords field
+        /^(meta-keywords|Meta-Keywords|metakeywords|metaKeywords|meta keywords|Meta Keywords)\s*[:\-=\|]\s*(.+)$/i,
+        // Canonical URL
+        /^(canonicalurl|canonicalUrl|canonical url|Canonical URL)\s*[:\-=\|]\s*(.+)$/i,
+        // Publish At
+        /^(publishat|publishAt|publish at|Publish At)\s*[:\-=\|]\s*(.+)$/i,
+        // Image ALT
+        /^(image alt|Image ALT|imageAlt|image-alt|Image-ALT)\s*[:\-=\|]\s*(.+)$/i,
+        // Title
+        /^(title|Title)\s*[:\-=\|]\s*(.+)$/i
+      ];
+      
+      for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match) {
+          const key = match[1].toLowerCase().replace(/\s+/g, '').replace(/-/g, '');
+          const value = match[2].trim();
+          
+          if ((key === 'url' || key.includes('url')) && !metadata.canonicalUrl) {
+            metadata.canonicalUrl = value;
+            console.log('✅ Found URL/canonicalUrl:', value);
+          } else if (key.includes('metatitle') && !metadata.metaTitle) {
+            metadata.metaTitle = value;
+            console.log('✅ Found metaTitle:', value);
+          } else if (key.includes('metadescription') && !metadata.metaDescription) {
+            metadata.metaDescription = value;
+            console.log('✅ Found metaDescription:', value);
+          } else if (key.includes('metakeywords') && !metadata.metaKeywords) {
+            metadata.metaKeywords = value;
+            console.log('✅ Found metaKeywords:', value);
+          } else if (key.includes('canonicalurl') && !metadata.canonicalUrl) {
+            metadata.canonicalUrl = value;
+            console.log('✅ Found canonicalUrl:', value);
+          } else if (key.includes('publishat') && !metadata.publishAt) {
+            metadata.publishAt = value;
+            console.log('✅ Found publishAt:', value);
+          } else if (key.includes('imagealt') && !metadata.imageAlt) {
+            metadata.imageAlt = value;
+            console.log('✅ Found imageAlt:', value);
+          } else if (key === 'title' && !metadata.title) {
+            metadata.title = value;
+            console.log('✅ Found title:', value);
+          }
+          break;
+        }
+      }
+    }
+    
+    // Also check raw text lines for form fields
+    const lines = rawText.split('\n');
+    for (let i = 0; i < Math.min(100, lines.length); i++) {
+      const line = lines[i].trim();
+      
+      // Skip empty lines
+      if (!line) continue;
+      
+      // Check for URL field
+      const urlMatch = line.match(/^(?:url|URL)\s*[:\-=\|]\s*(.+)$/i);
+      if (urlMatch && !metadata.canonicalUrl) {
+        metadata.canonicalUrl = urlMatch[1].trim();
+        console.log('✅ Found URL (raw text):', metadata.canonicalUrl);
+        continue;
+      }
+      
+      // Check for Meta-Title (with hyphen)
+      const metaTitleMatch = line.match(/^(?:meta-title|Meta-Title|metatitle|metaTitle|meta title|Meta Title)\s*[:\-=\|]\s*(.+)$/i);
+      if (metaTitleMatch && !metadata.metaTitle) {
+        metadata.metaTitle = metaTitleMatch[1].trim();
+        console.log('✅ Found metaTitle (raw text):', metadata.metaTitle);
+        continue;
+      }
+      
+      // Check for Meta-Description (with hyphen)
+      const metaDescMatch = line.match(/^(?:meta-description|Meta-Description|metadescription|metaDescription|meta description|Meta Description)\s*[:\-=\|]\s*(.+)$/i);
+      if (metaDescMatch && !metadata.metaDescription) {
+        metadata.metaDescription = metaDescMatch[1].trim();
+        console.log('✅ Found metaDescription (raw text):', metadata.metaDescription);
+        continue;
+      }
+      
+      // Check for Meta-Keywords
+      const metaKeywordsMatch = line.match(/^(?:meta-keywords|Meta-Keywords|metakeywords|metaKeywords|meta keywords|Meta Keywords)\s*[:\-=\|]\s*(.+)$/i);
+      if (metaKeywordsMatch && !metadata.metaKeywords) {
+        metadata.metaKeywords = metaKeywordsMatch[1].trim();
+        console.log('✅ Found metaKeywords (raw text):', metadata.metaKeywords);
+        continue;
+      }
+      
+      // Check for Image ALT
+      const imageAltMatch = line.match(/^(?:image alt|Image ALT|imageAlt|image-alt|Image-ALT)\s*[:\-=\|]\s*(.+)$/i);
+      if (imageAltMatch && !metadata.imageAlt) {
+        metadata.imageAlt = imageAltMatch[1].trim();
+        console.log('✅ Found imageAlt (raw text):', metadata.imageAlt);
+        continue;
+      }
+      
+      // Check for canonical URL
+      const canonicalUrlMatch = line.match(/^(?:canonicalurl|canonicalUrl|canonical url|Canonical URL)\s*[:\-=\|]\s*(.+)$/i);
+      if (canonicalUrlMatch && !metadata.canonicalUrl) {
+        metadata.canonicalUrl = canonicalUrlMatch[1].trim();
+        console.log('✅ Found canonicalUrl (raw text):', metadata.canonicalUrl);
+        continue;
+      }
+      
+      // Check for publish at
+      const publishAtMatch = line.match(/^(?:publishat|publishAt|publish at|Publish At)\s*[:\-=\|]\s*(.+)$/i);
+      if (publishAtMatch && !metadata.publishAt) {
+        metadata.publishAt = publishAtMatch[1].trim();
+        console.log('✅ Found publishAt (raw text):', metadata.publishAt);
+        continue;
+      }
+      
+      // Check for title
+      const titleMatch = line.match(/^(?:title|Title)\s*[:\-=\|]\s*(.+)$/i);
+      if (titleMatch && !metadata.title) {
+        metadata.title = titleMatch[1].trim();
+        console.log('✅ Found title (raw text):', metadata.title);
+        continue;
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error extracting form fields from DOCX:', error);
+    // Don't throw - return empty metadata so HTML parsing can try
+    return metadata;
+  }
+  
+  return metadata;
+}
+
+// Clean content by removing heading tags and converting to plain text/markdown
+function cleanContent(html) {
+  console.log('🧹 Cleaning content - removing heading tags...');
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = html;
+  
+  // Remove all heading tags (h1, h2, h3, h4, h5, h6) and convert to plain paragraphs
+  const headings = tempDiv.querySelectorAll('h1, h2, h3, h4, h5, h6');
+  headings.forEach(heading => {
+    const paragraph = document.createElement('p');
+    paragraph.textContent = heading.textContent;
+    // Add some spacing for readability
+    paragraph.style.marginTop = '16px';
+    paragraph.style.marginBottom = '8px';
+    paragraph.style.fontWeight = 'bold';
+    heading.parentNode.replaceChild(paragraph, heading);
+  });
+  
+  // Also remove any remaining structural elements that shouldn't be in markdown
+  // Keep only: p, strong, em, ul, ol, li, blockquote, a, img (will be replaced)
+  const allowedTags = ['p', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'blockquote', 'a', 'br', 'img'];
+  const allElements = tempDiv.querySelectorAll('*');
+  
+  allElements.forEach(element => {
+    const tagName = element.tagName.toLowerCase();
+    if (!allowedTags.includes(tagName) && tagName !== 'div' && tagName !== 'span') {
+      // Replace with paragraph containing text content
+      const paragraph = document.createElement('p');
+      paragraph.innerHTML = element.innerHTML;
+      element.parentNode.replaceChild(paragraph, element);
+    }
+  });
+  
+  const cleanedHtml = tempDiv.innerHTML;
+  console.log('✅ Content cleaned, length:', cleanedHtml.length);
+  return cleanedHtml;
+}
+
+// Auto-publish to Strapi without showing metadata form
+async function autoPublishToStrapi() {
+  console.log('🚀 Auto-publishing to Strapi...');
+  showLoading(true);
+  
+  try {
+    // Get configuration
+    const config = await new Promise((resolve) => {
+      chrome.storage.local.get(['strapiUrl', 'apiToken', 'collectionType', 'contentFieldName'], resolve);
+    });
+    
+    if (!config.strapiUrl || !config.apiToken) {
+      showLoading(false);
+      showStatus('Please configure Strapi settings first (URL and API Token)', 'error');
+      return;
+    }
+    
+    if (!config.collectionType) {
+      showLoading(false);
+      showStatus('Please configure Collection Type in settings', 'error');
+      return;
+    }
+    
+    // Ensure extractedMetadata is always an object (not null/undefined)
+    if (!extractedMetadata || typeof extractedMetadata !== 'object') {
+      extractedMetadata = {
+        title: '',
+        metaTitle: '',
+        metaDescription: '',
+        metaKeywords: '',
+        canonicalUrl: '',
+        publishAt: ''
+      };
+    }
+    
+    // Prepare blog post data
+    const blogData = {
+      data: {}
+    };
+    
+    // Add title (required) - ensure it's always a non-empty string
+    let titleValue = '';
+    
+    // Try to get title from extractedMetadata (handle null, undefined, or empty string)
+    if (extractedMetadata.title && typeof extractedMetadata.title === 'string' && extractedMetadata.title.trim()) {
+      titleValue = extractedMetadata.title.trim();
+    }
+    
+    // Fallback: If title is still empty, use filename
+    if (!titleValue) {
+      const file = docxFileInput.files[0];
+      if (file) {
+        const fileNameWithoutExt = file.name.replace(/\.docx?$/i, '').trim();
+        if (fileNameWithoutExt) {
+          titleValue = fileNameWithoutExt;
+        }
+      }
+    }
+    
+    // Final check: if still empty, use default
+    if (!titleValue || titleValue.trim() === '') {
+      titleValue = 'Untitled Post';
+    }
+    
+    // Ensure title is a string and not null/undefined
+    titleValue = String(titleValue).trim();
+    if (!titleValue) {
+      titleValue = 'Untitled Post';
+    }
+    
+    blogData.data.title = titleValue;
+    console.log('✅ Title (validated):', titleValue);
+    console.log('✅ Title type:', typeof blogData.data.title);
+    
+    // Add content field
+    let contentFieldName = config.contentFieldName || 'content';
+    if (parsedContent) {
+      blogData.data[contentFieldName] = parsedContent;
+    }
+    
+    // Add optional metadata fields only if they have values (ensure they're strings)
+    if (extractedMetadata.metaTitle && typeof extractedMetadata.metaTitle === 'string' && extractedMetadata.metaTitle.trim()) {
+      blogData.data.metaTitle = extractedMetadata.metaTitle.trim();
+    }
+    if (extractedMetadata.metaDescription && typeof extractedMetadata.metaDescription === 'string' && extractedMetadata.metaDescription.trim()) {
+      blogData.data.metaDescription = extractedMetadata.metaDescription.trim();
+    }
+    if (extractedMetadata.metaKeywords && typeof extractedMetadata.metaKeywords === 'string' && extractedMetadata.metaKeywords.trim()) {
+      blogData.data.metaKeywords = extractedMetadata.metaKeywords.trim();
+    }
+    if (extractedMetadata.canonicalUrl && typeof extractedMetadata.canonicalUrl === 'string' && extractedMetadata.canonicalUrl.trim()) {
+      blogData.data.canonicalUrl = extractedMetadata.canonicalUrl.trim();
+    }
+    if (extractedMetadata.publishAt && typeof extractedMetadata.publishAt === 'string' && extractedMetadata.publishAt.trim()) {
+      blogData.data.publishAt = extractedMetadata.publishAt.trim();
+    }
+    
+    // Validate title one more time before sending
+    if (!blogData.data.title || typeof blogData.data.title !== 'string' || blogData.data.title.trim() === '') {
+      console.error('❌ Title validation failed! Title value:', blogData.data.title);
+      blogData.data.title = 'Untitled Post';
+      console.log('⚠️ Using fallback title:', blogData.data.title);
+    }
+    
+    // Log the data being sent
+    console.log('📦 Data being sent to Strapi:', JSON.stringify(blogData, null, 2));
+    console.log('📦 Title value check:', {
+      value: blogData.data.title,
+      type: typeof blogData.data.title,
+      isString: typeof blogData.data.title === 'string',
+      length: blogData.data.title ? blogData.data.title.length : 0,
+      trimmed: blogData.data.title ? blogData.data.title.trim() : ''
+    });
+    
+    // Make API request to Strapi
+    const endpoints = [
+      `${config.strapiUrl}/api/${config.collectionType}s`,
+      `${config.strapiUrl}/api/${config.collectionType}`
+    ];
+    
+    let validEndpoint = null;
+    for (const endpoint of endpoints) {
+      try {
+        const testResponse = await fetch(endpoint, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${config.apiToken}`
+          }
+        });
+        
+        if (testResponse.status !== 404) {
+          validEndpoint = endpoint;
+          break;
+        }
+      } catch (testError) {
+        console.log(`Error testing ${endpoint}:`, testError);
+      }
+    }
+    
+    const endpointsToTry = validEndpoint ? [validEndpoint] : endpoints;
+    let response = null;
+    let lastEndpoint = '';
+    
+    for (const endpoint of endpointsToTry) {
+      lastEndpoint = endpoint;
+      
+      try {
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.apiToken}`
+          },
+          body: JSON.stringify(blogData)
+        });
+        
+        if (response.ok) {
+          break;
+        }
+        
+        if (response.status === 405 && endpointsToTry.indexOf(endpoint) < endpointsToTry.length - 1) {
+          continue;
+        }
+        
+        break;
+      } catch (fetchError) {
+        console.error('Fetch error:', fetchError);
+        if (endpointsToTry.indexOf(endpoint) < endpointsToTry.length - 1) {
+          continue;
+        }
+        throw fetchError;
+      }
+    }
+    
+    if (!response || !response.ok) {
+      let errorMessage = `HTTP ${response?.status || 'Network Error'}: ${response?.statusText || 'Unknown error'}`;
+      
+      if (response) {
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error?.message || errorMessage;
+        } catch (e) {
+          const errorText = await response.text();
+          errorMessage = errorText || errorMessage;
+        }
+      }
+      
+      showLoading(false);
+      showDetailedError(errorMessage, lastEndpoint, response?.status || 0);
+      return;
+    }
+    
+    const result = await response.json();
+    console.log('✅ Success:', result);
+    
+    showLoading(false);
+    const postId = result.data?.id || result.data?.attributes?.id || 'unknown';
+    const postTitle = result.data?.attributes?.title || result.data?.title || 'Blog Post';
+    showStatus(
+      `✅ Blog post published successfully!\nID: ${postId}\nTitle: ${postTitle}`,
+      'success'
+    );
+    
+    // Clear form after successful publish
+    setTimeout(() => {
+      resetForm();
+    }, 3000);
+    
+  } catch (error) {
+    console.error('❌ Auto-publish error:', error);
+    showLoading(false);
+    showStatus(`❌ Error publishing: ${error.message}`, 'error');
+  }
 }
 
 // Extract metadata from document content
@@ -750,43 +1209,109 @@ function extractMetadataFromContent(html) {
   
   // Look for metadata in the first few paragraphs (expanded to 50 for better coverage)
   // Support multiple formats:
-  // 1. "title: value"
-  // 2. "Title: value"
-  // 3. "TITLE: value"
-  // 4. "title - value"
-  // 5. "Title | value"
+  // 1. "URL: value"
+  // 2. "Meta-Title: value"
+  // 3. "Meta-Description: value"
+  // 4. "Image ALT: value"
+  // etc.
   const metadataPatterns = [
-    /^(title|metaTitle|metaDescription|metaKeywords|canonicalUrl|canonicalURL|publishAt)[:\-\|]\s*(.+)$/i,
-    /^(title|metaTitle|metaDescription|metaKeywords|canonicalUrl|canonicalURL|publishAt)\s*=\s*(.+)$/i
+    /^(url|URL)\s*[:\-=\|]\s*(.+)$/i,
+    /^(meta-title|Meta-Title|metatitle|metaTitle|meta title|Meta Title)\s*[:\-=\|]\s*(.+)$/i,
+    /^(meta-description|Meta-Description|metadescription|metaDescription|meta description|Meta Description)\s*[:\-=\|]\s*(.+)$/i,
+    /^(meta-keywords|Meta-Keywords|metakeywords|metaKeywords|meta keywords|Meta Keywords)\s*[:\-=\|]\s*(.+)$/i,
+    /^(image alt|Image ALT|imageAlt|image-alt|Image-ALT)\s*[:\-=\|]\s*(.+)$/i,
+    /^(canonicalurl|canonicalUrl|canonical url|Canonical URL)\s*[:\-=\|]\s*(.+)$/i,
+    /^(publishat|publishAt|publish at|Publish At)\s*[:\-=\|]\s*(.+)$/i,
+    /^(title|Title)\s*[:\-=\|]\s*(.+)$/i
   ];
   
-  for (let i = 0; i < Math.min(50, paragraphs.length); i++) {
+  // Check first 100 paragraphs for metadata (expanded for better coverage)
+  for (let i = 0; i < Math.min(100, paragraphs.length); i++) {
     const text = paragraphs[i].textContent.trim();
     
+    // Log first 20 paragraphs for debugging
+    if (i < 20) {
+      console.log(`📝 Paragraph ${i}: "${text.substring(0, 80)}..."`);
+    }
+    
     // Try each pattern
-    for (const pattern of metadataPatterns) {
+    for (let p = 0; p < metadataPatterns.length; p++) {
+      const pattern = metadataPatterns[p];
       const match = text.match(pattern);
       
       if (match) {
-        const key = match[1].toLowerCase();
+        const key = match[1].toLowerCase().replace(/\s+/g, '').replace(/-/g, '');
         const value = match[2].trim();
-        console.log(`Found metadata: ${key} = ${value.substring(0, 50)}...`);
+        console.log(`✅ Found metadata at paragraph ${i}: ${key} = ${value.substring(0, 80)}...`);
         
-        // Normalize key names
-        if (key === 'canonicalurl') {
+        // Normalize key names and assign values
+        if (key === 'url' && !metadata.canonicalUrl) {
           metadata.canonicalUrl = value;
-        } else if (key === 'metatitle') {
+        } else if (key === 'canonicalurl' && !metadata.canonicalUrl) {
+          metadata.canonicalUrl = value;
+        } else if (key.includes('metatitle') && !metadata.metaTitle) {
           metadata.metaTitle = value;
-        } else if (key === 'metadescription') {
+        } else if (key.includes('metadescription') && !metadata.metaDescription) {
           metadata.metaDescription = value;
-        } else if (key === 'metakeywords') {
+        } else if (key.includes('metakeywords') && !metadata.metaKeywords) {
           metadata.metaKeywords = value;
-        } else if (key === 'publishat') {
+        } else if (key.includes('publishat') && !metadata.publishAt) {
           metadata.publishAt = value;
-        } else if (key === 'title') {
+        } else if (key === 'title' && !metadata.title) {
           metadata.title = value;
         }
         break; // Found a match, move to next paragraph
+      }
+    }
+  }
+  
+  // Also check raw text content for better matching
+  const rawText = tempDiv.textContent || '';
+  const lines = rawText.split('\n');
+  console.log(`📊 Checking ${lines.length} lines of raw text for metadata...`);
+  
+  for (let i = 0; i < Math.min(100, lines.length); i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    // Log first 20 lines for debugging
+    if (i < 20) {
+      console.log(`📝 Line ${i}: "${line.substring(0, 80)}..."`);
+    }
+    
+    // Try each pattern on raw lines
+    for (let p = 0; p < metadataPatterns.length; p++) {
+      const pattern = metadataPatterns[p];
+      const match = line.match(pattern);
+      
+      if (match) {
+        const key = match[1].toLowerCase().replace(/\s+/g, '').replace(/-/g, '');
+        const value = match[2].trim();
+        
+        // Only set if not already found
+        if (key === 'url' && !metadata.canonicalUrl) {
+          metadata.canonicalUrl = value;
+          console.log(`✅ Found URL (raw line ${i}):`, value);
+        } else if (key === 'canonicalurl' && !metadata.canonicalUrl) {
+          metadata.canonicalUrl = value;
+          console.log(`✅ Found canonicalUrl (raw line ${i}):`, value);
+        } else if (key.includes('metatitle') && !metadata.metaTitle) {
+          metadata.metaTitle = value;
+          console.log(`✅ Found metaTitle (raw line ${i}):`, value);
+        } else if (key.includes('metadescription') && !metadata.metaDescription) {
+          metadata.metaDescription = value;
+          console.log(`✅ Found metaDescription (raw line ${i}):`, value);
+        } else if (key.includes('metakeywords') && !metadata.metaKeywords) {
+          metadata.metaKeywords = value;
+          console.log(`✅ Found metaKeywords (raw line ${i}):`, value);
+        } else if (key.includes('publishat') && !metadata.publishAt) {
+          metadata.publishAt = value;
+          console.log(`✅ Found publishAt (raw line ${i}):`, value);
+        } else if (key === 'title' && !metadata.title) {
+          metadata.title = value;
+          console.log(`✅ Found title (raw line ${i}):`, value);
+        }
+        break;
       }
     }
   }
@@ -831,26 +1356,144 @@ function extractMetadataFromContent(html) {
   }
   
   console.log('📊 Final extracted metadata:', metadata);
+  console.log('📊 Extraction summary:', {
+    hasTitle: !!metadata.title,
+    hasMetaTitle: !!metadata.metaTitle,
+    hasMetaDescription: !!metadata.metaDescription,
+    hasMetaKeywords: !!metadata.metaKeywords,
+    hasCanonicalUrl: !!metadata.canonicalUrl,
+    hasPublishAt: !!metadata.publishAt
+  });
   return metadata;
 }
 
-// Remove metadata section from content
-function removeMetadataSection(html) {
+// Extract content section between "Introduction" and "Disclaimer"
+function extractContentSection(html) {
+  console.log('📄 Extracting content section (Introduction to Disclaimer)...');
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = html;
   
   const paragraphs = tempDiv.querySelectorAll('p');
-  const metadataPattern = /^(title|metaTitle|metaDescription|metaKeywords|canonicalUrl|canonicalURL|publishAt):\s*(.+)$/i;
+  let startIndex = -1;
+  let endIndex = -1;
   
-  // Remove metadata paragraphs
-  for (let i = 0; i < Math.min(15, paragraphs.length); i++) {
-    const text = paragraphs[i].textContent.trim();
-    if (metadataPattern.test(text)) {
-      paragraphs[i].remove();
+  // Find "Introduction" paragraph
+  for (let i = 0; i < paragraphs.length; i++) {
+    const text = paragraphs[i].textContent.trim().toLowerCase();
+    if (text === 'introduction' || text.startsWith('introduction')) {
+      startIndex = i;
+      console.log('✅ Found Introduction at index:', startIndex);
+      break;
     }
   }
   
-  return tempDiv.innerHTML;
+  // Find "Disclaimer" or "Final Thoughts" paragraph (whichever comes first after Introduction)
+  if (startIndex >= 0) {
+    for (let i = startIndex + 1; i < paragraphs.length; i++) {
+      const text = paragraphs[i].textContent.trim().toLowerCase();
+      if (text === 'disclaimer' || text.startsWith('disclaimer') || 
+          text === 'final thoughts' || text.startsWith('final thoughts')) {
+        endIndex = i;
+        console.log('✅ Found Disclaimer/Final Thoughts at index:', endIndex);
+        break;
+      }
+    }
+  }
+  
+  // If we found both markers, extract only that section
+  if (startIndex >= 0 && endIndex >= 0) {
+    const contentDiv = document.createElement('div');
+    for (let i = startIndex; i <= endIndex; i++) {
+      contentDiv.appendChild(paragraphs[i].cloneNode(true));
+    }
+    console.log('✅ Extracted content section (Introduction to Disclaimer)');
+    return contentDiv.innerHTML;
+  } else if (startIndex >= 0) {
+    // If only Introduction found, extract from there to the end
+    const contentDiv = document.createElement('div');
+    for (let i = startIndex; i < paragraphs.length; i++) {
+      contentDiv.appendChild(paragraphs[i].cloneNode(true));
+    }
+    console.log('⚠️ Only Introduction found, extracting from Introduction to end');
+    return contentDiv.innerHTML;
+  } else {
+    // If neither found, return original content
+    console.log('⚠️ Introduction not found, returning original content');
+    return html;
+  }
+}
+
+// Remove metadata section from content
+function removeMetadataSection(html) {
+  console.log('🧹 Removing metadata sections from content...');
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = html;
+  
+  const paragraphs = tempDiv.querySelectorAll('p');
+  const allElements = tempDiv.querySelectorAll('*');
+  
+  // Patterns for metadata fields
+  const metadataPatterns = [
+    /^(url|URL)\s*[:\-=\|]/i,
+    /^(meta-title|Meta-Title|metatitle|metaTitle|meta title|Meta Title)\s*[:\-=\|]/i,
+    /^(meta-description|Meta-Description|metadescription|metaDescription|meta description|Meta Description)\s*[:\-=\|]/i,
+    /^(meta-keywords|Meta-Keywords|metakeywords|metaKeywords|meta keywords|Meta Keywords)\s*[:\-=\|]/i,
+    /^(image alt|Image ALT|imageAlt|image-alt|Image-ALT)\s*[:\-=\|]/i,
+    /^(canonicalurl|canonicalUrl|canonical url|Canonical URL)\s*[:\-=\|]/i,
+    /^(publishat|publishAt|publish at|Publish At)\s*[:\-=\|]/i,
+    /^(title|Title)\s*[:\-=\|]/i,
+    /^ARTICLE SCHEMA:/i,
+    /^References$/i,
+    /^<script/i  // Remove script tags (ARTICLE SCHEMA JSON-LD)
+  ];
+  
+  // Remove metadata paragraphs
+  const toRemove = [];
+  for (let i = 0; i < paragraphs.length; i++) {
+    const text = paragraphs[i].textContent.trim();
+    const htmlContent = paragraphs[i].innerHTML.trim();
+    
+    // Check if paragraph matches any metadata pattern
+    for (const pattern of metadataPatterns) {
+      if (pattern.test(text) || pattern.test(htmlContent)) {
+        toRemove.push(paragraphs[i]);
+        console.log('🗑️ Removing metadata paragraph:', text.substring(0, 50));
+        break;
+      }
+    }
+    
+    // Also check for "References" section and everything after it
+    if (text.toLowerCase() === 'references' || text.toLowerCase().startsWith('references')) {
+      // Remove this paragraph and all following paragraphs
+      for (let j = i; j < paragraphs.length; j++) {
+        toRemove.push(paragraphs[j]);
+      }
+      console.log('🗑️ Removing References section and everything after');
+      break;
+    }
+  }
+  
+  // Remove identified elements
+  toRemove.forEach(element => {
+    if (element.parentNode) {
+      element.remove();
+    }
+  });
+  
+  // Remove script tags (ARTICLE SCHEMA JSON-LD)
+  const scripts = tempDiv.querySelectorAll('script');
+  scripts.forEach(script => {
+    if (script.textContent.includes('application/ld+json') || 
+        script.textContent.includes('BlogPosting') ||
+        script.textContent.includes('ARTICLE SCHEMA')) {
+      script.remove();
+      console.log('🗑️ Removed ARTICLE SCHEMA script tag');
+    }
+  });
+  
+  const cleanedHtml = tempDiv.innerHTML;
+  console.log('✅ Metadata sections removed, content length:', cleanedHtml.length);
+  return cleanedHtml;
 }
 
 // Handle images - replace with placeholders
