@@ -199,7 +199,7 @@ testConnectionBtn.addEventListener('click', async () => {
     let testResults = [];
     
     for (const endpoint of endpoints) {
-      console.log(`🔍 Testing endpoint: ${endpoint}`);
+      console.log(`Testing endpoint: ${endpoint}`);
       
       // Test GET request (to see if endpoint exists)
       try {
@@ -383,7 +383,7 @@ testConnectionBtn.addEventListener('click', async () => {
     statusDiv.style.maxHeight = '400px';
     statusDiv.style.overflowY = 'auto';
     
-    console.group('🔍 Connection Test Results');
+    console.group('Connection Test Results');
     console.table(testResults);
     console.groupEnd();
     
@@ -522,7 +522,7 @@ discoverTypesBtn.addEventListener('click', async () => {
         resultMessage += '6. Enable "create" permission for your content type\n';
       }
     } else {
-      resultMessage += '❌ Could not automatically discover content types.\n\n';
+      resultMessage += 'Could not automatically discover content types.\n\n';
       resultMessage += 'To find your content type name manually:\n';
       resultMessage += '1. Open Strapi Admin Panel\n';
       resultMessage += '2. Go to Content Manager\n';
@@ -534,7 +534,7 @@ discoverTypesBtn.addEventListener('click', async () => {
       resultMessage += 'Settings → Content-Type Builder → Click your content type → API ID\n';
     }
     
-    resultMessage += '\n📝 Common patterns:\n';
+    resultMessage += '\nCommon patterns:\n';
     resultMessage += '- If content type is "Blog Posts" → try "blog-post"\n';
     resultMessage += '- If content type is "Articles" → try "article"\n';
     resultMessage += '- The name is usually lowercase with hyphens\n';
@@ -552,7 +552,7 @@ discoverTypesBtn.addEventListener('click', async () => {
     
   } catch (error) {
     showLoading(false);
-    showStatus(`❌ Discovery failed: ${error.message}`, 'error');
+    showStatus(`Discovery failed: ${error.message}`, 'error');
     console.error('Discover types error:', error);
   }
 });
@@ -572,7 +572,7 @@ docxFileInput.addEventListener('change', async (e) => {
     // Preview will be shown in parseDocxFile if needed
     // Auto-publish is also handled there
   } catch (error) {
-    console.error('❌ Error parsing document:', error);
+    console.error('Error parsing document:', error);
     showLoading(false);
     showStatus(`Error parsing document: ${error.message}`, 'error');
   }
@@ -580,15 +580,15 @@ docxFileInput.addEventListener('change', async (e) => {
 
 // Parse DOCX file
 async function parseDocxFile(file) {
-  console.log('📄 Starting to parse DOCX file:', file.name);
+  console.log('Starting to parse DOCX file:', file.name);
   const arrayBuffer = await file.arrayBuffer();
   
   // First, try to extract form fields from raw DOCX XML
   try {
     extractedMetadata = await extractFormFieldsFromDocx(arrayBuffer);
-    console.log('✅ Extracted form fields from DOCX:', extractedMetadata);
+    console.log('Extracted form fields from DOCX:', extractedMetadata);
   } catch (error) {
-    console.log('⚠️ Could not extract form fields from XML, will try HTML parsing:', error);
+    console.log('Could not extract form fields from XML, will try HTML parsing:', error);
     extractedMetadata = {
       title: '',
       metaTitle: '',
@@ -619,7 +619,7 @@ async function parseDocxFile(file) {
   // Also log the raw text to see what we're working with
   const rawTextResult = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
   const rawText = rawTextResult.value;
-  console.log('📄 First 1000 chars of raw text:', rawText.substring(0, 1000));
+  console.log('First 1000 chars of raw text:', rawText.substring(0, 1000));
   
   // Extract headings before removing metadata (for title fallback)
   const tempDivForHeadings = document.createElement('div');
@@ -630,7 +630,7 @@ async function parseDocxFile(file) {
   // ALWAYS try HTML parsing to extract metadata (more reliable than raw text)
   // Extract metadata from HTML BEFORE any content modification
   const htmlMetadata = extractMetadataFromContent(htmlContent);
-  console.log('📋 Extracted metadata from HTML:', htmlMetadata);
+  console.log('Extracted metadata from HTML:', htmlMetadata);
   
   // Merge HTML metadata with form field metadata (form fields take precedence, but HTML fills gaps)
   if (!extractedMetadata) {
@@ -647,7 +647,7 @@ async function parseDocxFile(file) {
     publishAt: extractedMetadata.publishAt || htmlMetadata.publishAt || ''
   };
   
-  console.log('📋 Final merged metadata:', extractedMetadata);
+  console.log('Final merged metadata:', extractedMetadata);
   
   // Extract content between "Introduction" and "Disclaimer" (or "Final Thoughts" to "Disclaimer")
   htmlContent = extractContentSection(htmlContent);
@@ -667,8 +667,8 @@ async function parseDocxFile(file) {
   parsedContent = htmlContent;
   
   // Populate form fields (for display only, but we'll auto-publish)
-  console.log('📋 Populating form fields...');
-  console.log('📋 Extracted metadata summary:', {
+  console.log('Populating form fields...');
+  console.log('Extracted metadata summary:', {
     title: extractedMetadata.title || '(empty)',
     metaTitle: extractedMetadata.metaTitle || '(empty)',
     metaDescription: extractedMetadata.metaDescription ? extractedMetadata.metaDescription.substring(0, 50) + '...' : '(empty)',
@@ -758,7 +758,7 @@ async function parseDocxFile(file) {
 
 // Extract form fields from DOCX XML
 async function extractFormFieldsFromDocx(arrayBuffer) {
-  console.log('🔍 Extracting form fields from DOCX XML...');
+  console.log('Extracting form fields from DOCX XML...');
   const metadata = {
     title: '',
     metaTitle: '',
@@ -823,28 +823,28 @@ async function extractFormFieldsFromDocx(arrayBuffer) {
           
           if ((key === 'url' || key.includes('url')) && !metadata.canonicalUrl) {
             metadata.canonicalUrl = value;
-            console.log('✅ Found URL/canonicalUrl:', value);
+            console.log('Found URL/canonicalUrl:', value);
           } else if (key.includes('metatitle') && !metadata.metaTitle) {
             metadata.metaTitle = value;
-            console.log('✅ Found metaTitle:', value);
+            console.log('Found metaTitle:', value);
           } else if (key.includes('metadescription') && !metadata.metaDescription) {
             metadata.metaDescription = value;
-            console.log('✅ Found metaDescription:', value);
+            console.log('Found metaDescription:', value);
           } else if (key.includes('metakeywords') && !metadata.metaKeywords) {
             metadata.metaKeywords = value;
-            console.log('✅ Found metaKeywords:', value);
+            console.log('Found metaKeywords:', value);
           } else if (key.includes('canonicalurl') && !metadata.canonicalUrl) {
             metadata.canonicalUrl = value;
-            console.log('✅ Found canonicalUrl:', value);
+            console.log('Found canonicalUrl:', value);
           } else if (key.includes('publishat') && !metadata.publishAt) {
             metadata.publishAt = value;
-            console.log('✅ Found publishAt:', value);
+            console.log('Found publishAt:', value);
           } else if (key.includes('imagealt') && !metadata.imageAlt) {
             metadata.imageAlt = value;
-            console.log('✅ Found imageAlt:', value);
+            console.log('Found imageAlt:', value);
           } else if (key === 'title' && !metadata.title) {
             metadata.title = value;
-            console.log('✅ Found title:', value);
+            console.log('Found title:', value);
           }
           break;
         }
@@ -863,7 +863,7 @@ async function extractFormFieldsFromDocx(arrayBuffer) {
       const urlMatch = line.match(/^(?:url|URL)\s*[:\-=\|]\s*(.+)$/i);
       if (urlMatch && !metadata.canonicalUrl) {
         metadata.canonicalUrl = urlMatch[1].trim();
-        console.log('✅ Found URL (raw text):', metadata.canonicalUrl);
+        console.log('Found URL (raw text):', metadata.canonicalUrl);
         continue;
       }
       
@@ -871,7 +871,7 @@ async function extractFormFieldsFromDocx(arrayBuffer) {
       const metaTitleMatch = line.match(/^(?:meta-title|Meta-Title|metatitle|metaTitle|meta title|Meta Title)\s*[:\-=\|]\s*(.+)$/i);
       if (metaTitleMatch && !metadata.metaTitle) {
         metadata.metaTitle = metaTitleMatch[1].trim();
-        console.log('✅ Found metaTitle (raw text):', metadata.metaTitle);
+        console.log('Found metaTitle (raw text):', metadata.metaTitle);
         continue;
       }
       
@@ -879,7 +879,7 @@ async function extractFormFieldsFromDocx(arrayBuffer) {
       const metaDescMatch = line.match(/^(?:meta-description|Meta-Description|metadescription|metaDescription|meta description|Meta Description)\s*[:\-=\|]\s*(.+)$/i);
       if (metaDescMatch && !metadata.metaDescription) {
         metadata.metaDescription = metaDescMatch[1].trim();
-        console.log('✅ Found metaDescription (raw text):', metadata.metaDescription);
+        console.log('Found metaDescription (raw text):', metadata.metaDescription);
         continue;
       }
       
@@ -887,7 +887,7 @@ async function extractFormFieldsFromDocx(arrayBuffer) {
       const metaKeywordsMatch = line.match(/^(?:meta-keywords|Meta-Keywords|metakeywords|metaKeywords|meta keywords|Meta Keywords)\s*[:\-=\|]\s*(.+)$/i);
       if (metaKeywordsMatch && !metadata.metaKeywords) {
         metadata.metaKeywords = metaKeywordsMatch[1].trim();
-        console.log('✅ Found metaKeywords (raw text):', metadata.metaKeywords);
+        console.log('Found metaKeywords (raw text):', metadata.metaKeywords);
         continue;
       }
       
@@ -895,7 +895,7 @@ async function extractFormFieldsFromDocx(arrayBuffer) {
       const imageAltMatch = line.match(/^(?:image alt|Image ALT|imageAlt|image-alt|Image-ALT)\s*[:\-=\|]\s*(.+)$/i);
       if (imageAltMatch && !metadata.imageAlt) {
         metadata.imageAlt = imageAltMatch[1].trim();
-        console.log('✅ Found imageAlt (raw text):', metadata.imageAlt);
+        console.log('Found imageAlt (raw text):', metadata.imageAlt);
         continue;
       }
       
@@ -903,7 +903,7 @@ async function extractFormFieldsFromDocx(arrayBuffer) {
       const canonicalUrlMatch = line.match(/^(?:canonicalurl|canonicalUrl|canonical url|Canonical URL)\s*[:\-=\|]\s*(.+)$/i);
       if (canonicalUrlMatch && !metadata.canonicalUrl) {
         metadata.canonicalUrl = canonicalUrlMatch[1].trim();
-        console.log('✅ Found canonicalUrl (raw text):', metadata.canonicalUrl);
+        console.log('Found canonicalUrl (raw text):', metadata.canonicalUrl);
         continue;
       }
       
@@ -911,7 +911,7 @@ async function extractFormFieldsFromDocx(arrayBuffer) {
       const publishAtMatch = line.match(/^(?:publishat|publishAt|publish at|Publish At)\s*[:\-=\|]\s*(.+)$/i);
       if (publishAtMatch && !metadata.publishAt) {
         metadata.publishAt = publishAtMatch[1].trim();
-        console.log('✅ Found publishAt (raw text):', metadata.publishAt);
+        console.log('Found publishAt (raw text):', metadata.publishAt);
         continue;
       }
       
@@ -919,7 +919,7 @@ async function extractFormFieldsFromDocx(arrayBuffer) {
       const titleMatch = line.match(/^(?:title|Title)\s*[:\-=\|]\s*(.+)$/i);
       if (titleMatch && !metadata.title) {
         metadata.title = titleMatch[1].trim();
-        console.log('✅ Found title (raw text):', metadata.title);
+        console.log('Found title (raw text):', metadata.title);
         continue;
       }
     }
@@ -935,7 +935,7 @@ async function extractFormFieldsFromDocx(arrayBuffer) {
 
 // Clean content by removing heading tags and converting to plain text/markdown
 function cleanContent(html) {
-  console.log('🧹 Cleaning content - removing heading tags...');
+  console.log('Cleaning content - removing heading tags...');
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = html;
   
@@ -967,13 +967,13 @@ function cleanContent(html) {
   });
   
   const cleanedHtml = tempDiv.innerHTML;
-  console.log('✅ Content cleaned, length:', cleanedHtml.length);
+  console.log('Content cleaned, length:', cleanedHtml.length);
   return cleanedHtml;
 }
 
 // Auto-publish to Strapi without showing metadata form
 async function autoPublishToStrapi() {
-  console.log('🚀 Auto-publishing to Strapi...');
+  console.log('Auto-publishing to Strapi...');
   showLoading(true);
   
   try {
@@ -1042,8 +1042,8 @@ async function autoPublishToStrapi() {
     }
     
     blogData.data.title = titleValue;
-    console.log('✅ Title (validated):', titleValue);
-    console.log('✅ Title type:', typeof blogData.data.title);
+    console.log('Title (validated):', titleValue);
+    console.log('Title type:', typeof blogData.data.title);
     
     // Add content field
     let contentFieldName = config.contentFieldName || 'content';
@@ -1070,9 +1070,9 @@ async function autoPublishToStrapi() {
     
     // Validate title one more time before sending
     if (!blogData.data.title || typeof blogData.data.title !== 'string' || blogData.data.title.trim() === '') {
-      console.error('❌ Title validation failed! Title value:', blogData.data.title);
+      console.error('Title validation failed! Title value:', blogData.data.title);
       blogData.data.title = 'Untitled Post';
-      console.log('⚠️ Using fallback title:', blogData.data.title);
+      console.log('Using fallback title:', blogData.data.title);
     }
     
     // Log the data being sent
@@ -1164,13 +1164,13 @@ async function autoPublishToStrapi() {
     }
     
     const result = await response.json();
-    console.log('✅ Success:', result);
+    console.log('Success:', result);
     
     showLoading(false);
     const postId = result.data?.id || result.data?.attributes?.id || 'unknown';
     const postTitle = result.data?.attributes?.title || result.data?.title || 'Blog Post';
     showStatus(
-      `✅ Blog post published successfully!\nID: ${postId}\nTitle: ${postTitle}`,
+      `Blog post published successfully!\nID: ${postId}\nTitle: ${postTitle}`,
       'success'
     );
     
@@ -1180,15 +1180,15 @@ async function autoPublishToStrapi() {
     }, 3000);
     
   } catch (error) {
-    console.error('❌ Auto-publish error:', error);
+    console.error('Auto-publish error:', error);
     showLoading(false);
-    showStatus(`❌ Error publishing: ${error.message}`, 'error');
+    showStatus(`Error publishing: ${error.message}`, 'error');
   }
 }
 
 // Extract metadata from document content
 function extractMetadataFromContent(html) {
-  console.log('🔍 Starting metadata extraction...');
+  console.log('Starting metadata extraction...');
   const metadata = {
     title: '',
     metaTitle: '',
@@ -1205,7 +1205,7 @@ function extractMetadataFromContent(html) {
   // Debug: Log structure
   const paragraphs = tempDiv.querySelectorAll('p');
   const headings = tempDiv.querySelectorAll('h1, h2, h3');
-  console.log(`📊 Document structure: ${paragraphs.length} paragraphs, ${headings.length} headings`);
+  console.log(`Document structure: ${paragraphs.length} paragraphs, ${headings.length} headings`);
   
   // Look for metadata in the first few paragraphs (expanded to 50 for better coverage)
   // Support multiple formats:
@@ -1231,7 +1231,7 @@ function extractMetadataFromContent(html) {
     
     // Log first 20 paragraphs for debugging
     if (i < 20) {
-      console.log(`📝 Paragraph ${i}: "${text.substring(0, 80)}..."`);
+      console.log(`Paragraph ${i}: "${text.substring(0, 80)}..."`);
     }
     
     // Try each pattern
@@ -1242,7 +1242,7 @@ function extractMetadataFromContent(html) {
       if (match) {
         const key = match[1].toLowerCase().replace(/\s+/g, '').replace(/-/g, '');
         const value = match[2].trim();
-        console.log(`✅ Found metadata at paragraph ${i}: ${key} = ${value.substring(0, 80)}...`);
+        console.log(`Found metadata at paragraph ${i}: ${key} = ${value.substring(0, 80)}...`);
         
         // Normalize key names and assign values
         if (key === 'url' && !metadata.canonicalUrl) {
@@ -1268,7 +1268,7 @@ function extractMetadataFromContent(html) {
   // Also check raw text content for better matching
   const rawText = tempDiv.textContent || '';
   const lines = rawText.split('\n');
-  console.log(`📊 Checking ${lines.length} lines of raw text for metadata...`);
+  console.log(`Checking ${lines.length} lines of raw text for metadata...`);
   
   for (let i = 0; i < Math.min(100, lines.length); i++) {
     const line = lines[i].trim();
@@ -1276,7 +1276,7 @@ function extractMetadataFromContent(html) {
     
     // Log first 20 lines for debugging
     if (i < 20) {
-      console.log(`📝 Line ${i}: "${line.substring(0, 80)}..."`);
+      console.log(`Line ${i}: "${line.substring(0, 80)}..."`);
     }
     
     // Try each pattern on raw lines
@@ -1291,25 +1291,25 @@ function extractMetadataFromContent(html) {
         // Only set if not already found
         if (key === 'url' && !metadata.canonicalUrl) {
           metadata.canonicalUrl = value;
-          console.log(`✅ Found URL (raw line ${i}):`, value);
+          console.log(`Found URL (raw line ${i}):`, value);
         } else if (key === 'canonicalurl' && !metadata.canonicalUrl) {
           metadata.canonicalUrl = value;
-          console.log(`✅ Found canonicalUrl (raw line ${i}):`, value);
+          console.log(`Found canonicalUrl (raw line ${i}):`, value);
         } else if (key.includes('metatitle') && !metadata.metaTitle) {
           metadata.metaTitle = value;
-          console.log(`✅ Found metaTitle (raw line ${i}):`, value);
+          console.log(`Found metaTitle (raw line ${i}):`, value);
         } else if (key.includes('metadescription') && !metadata.metaDescription) {
           metadata.metaDescription = value;
-          console.log(`✅ Found metaDescription (raw line ${i}):`, value);
+          console.log(`Found metaDescription (raw line ${i}):`, value);
         } else if (key.includes('metakeywords') && !metadata.metaKeywords) {
           metadata.metaKeywords = value;
-          console.log(`✅ Found metaKeywords (raw line ${i}):`, value);
+          console.log(`Found metaKeywords (raw line ${i}):`, value);
         } else if (key.includes('publishat') && !metadata.publishAt) {
           metadata.publishAt = value;
-          console.log(`✅ Found publishAt (raw line ${i}):`, value);
+          console.log(`Found publishAt (raw line ${i}):`, value);
         } else if (key === 'title' && !metadata.title) {
           metadata.title = value;
-          console.log(`✅ Found title (raw line ${i}):`, value);
+          console.log(`Found title (raw line ${i}):`, value);
         }
         break;
       }
@@ -1318,21 +1318,21 @@ function extractMetadataFromContent(html) {
   
   // Fallback: If title is still empty, try to extract from first heading (h1, h2, h3)
   if (!metadata.title || metadata.title.trim() === '') {
-    console.log('🔍 Title not found in metadata, trying headings...');
+    console.log('Title not found in metadata, trying headings...');
     if (headings.length > 0) {
       const firstHeading = headings[0].textContent.trim();
       if (firstHeading) {
         metadata.title = firstHeading;
-        console.log('✅ Extracted title from first heading:', metadata.title);
+        console.log('Extracted title from first heading:', metadata.title);
       }
     } else {
-      console.log('⚠️ No headings found in document');
+      console.log('No headings found in document');
     }
   }
   
   // Fallback: If still no title, use first paragraph (truncated to 100 chars)
   if (!metadata.title || metadata.title.trim() === '') {
-    console.log('🔍 Title still not found, trying first paragraph...');
+    console.log('Title still not found, trying first paragraph...');
     const firstParagraph = tempDiv.querySelector('p');
     if (firstParagraph) {
       const text = firstParagraph.textContent.trim();
@@ -1340,9 +1340,9 @@ function extractMetadataFromContent(html) {
         // Skip if it looks like metadata (contains colon)
         if (!text.includes(':')) {
           metadata.title = text.length > 100 ? text.substring(0, 100) + '...' : text;
-          console.log('✅ Extracted title from first paragraph:', metadata.title);
+          console.log('Extracted title from first paragraph:', metadata.title);
         } else {
-          console.log('⚠️ First paragraph looks like metadata, skipping');
+          console.log('First paragraph looks like metadata, skipping');
         }
       }
     }
@@ -1350,13 +1350,13 @@ function extractMetadataFromContent(html) {
   
   // Final fallback: Use document filename (without extension) as title
   if (!metadata.title || metadata.title.trim() === '') {
-    console.log('🔍 Title still not found, using fallback...');
+    console.log('Title still not found, using fallback...');
     // This will be handled by the caller if needed
-    console.log('⚠️ No title could be extracted from document');
+    console.log('No title could be extracted from document');
   }
   
-  console.log('📊 Final extracted metadata:', metadata);
-  console.log('📊 Extraction summary:', {
+  console.log('Final extracted metadata:', metadata);
+  console.log('Extraction summary:', {
     hasTitle: !!metadata.title,
     hasMetaTitle: !!metadata.metaTitle,
     hasMetaDescription: !!metadata.metaDescription,
@@ -1369,7 +1369,7 @@ function extractMetadataFromContent(html) {
 
 // Extract content section between "Introduction" and "Disclaimer"
 function extractContentSection(html) {
-  console.log('📄 Extracting content section (Introduction to Disclaimer)...');
+  console.log('Extracting content section (Introduction to Disclaimer)...');
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = html;
   
@@ -1382,7 +1382,7 @@ function extractContentSection(html) {
     const text = paragraphs[i].textContent.trim().toLowerCase();
     if (text === 'introduction' || text.startsWith('introduction')) {
       startIndex = i;
-      console.log('✅ Found Introduction at index:', startIndex);
+      console.log('Found Introduction at index:', startIndex);
       break;
     }
   }
@@ -1394,7 +1394,7 @@ function extractContentSection(html) {
       if (text === 'disclaimer' || text.startsWith('disclaimer') || 
           text === 'final thoughts' || text.startsWith('final thoughts')) {
         endIndex = i;
-        console.log('✅ Found Disclaimer/Final Thoughts at index:', endIndex);
+        console.log('Found Disclaimer/Final Thoughts at index:', endIndex);
         break;
       }
     }
@@ -1406,7 +1406,7 @@ function extractContentSection(html) {
     for (let i = startIndex; i <= endIndex; i++) {
       contentDiv.appendChild(paragraphs[i].cloneNode(true));
     }
-    console.log('✅ Extracted content section (Introduction to Disclaimer)');
+    console.log('Extracted content section (Introduction to Disclaimer)');
     return contentDiv.innerHTML;
   } else if (startIndex >= 0) {
     // If only Introduction found, extract from there to the end
@@ -1414,18 +1414,18 @@ function extractContentSection(html) {
     for (let i = startIndex; i < paragraphs.length; i++) {
       contentDiv.appendChild(paragraphs[i].cloneNode(true));
     }
-    console.log('⚠️ Only Introduction found, extracting from Introduction to end');
+    console.log('Only Introduction found, extracting from Introduction to end');
     return contentDiv.innerHTML;
   } else {
     // If neither found, return original content
-    console.log('⚠️ Introduction not found, returning original content');
+    console.log('Introduction not found, returning original content');
     return html;
   }
 }
 
 // Remove metadata section from content
 function removeMetadataSection(html) {
-  console.log('🧹 Removing metadata sections from content...');
+  console.log('Removing metadata sections from content...');
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = html;
   
@@ -1457,7 +1457,7 @@ function removeMetadataSection(html) {
     for (const pattern of metadataPatterns) {
       if (pattern.test(text) || pattern.test(htmlContent)) {
         toRemove.push(paragraphs[i]);
-        console.log('🗑️ Removing metadata paragraph:', text.substring(0, 50));
+        console.log('Removing metadata paragraph:', text.substring(0, 50));
         break;
       }
     }
@@ -1468,7 +1468,7 @@ function removeMetadataSection(html) {
       for (let j = i; j < paragraphs.length; j++) {
         toRemove.push(paragraphs[j]);
       }
-      console.log('🗑️ Removing References section and everything after');
+      console.log('Removing References section and everything after');
       break;
     }
   }
@@ -1487,12 +1487,12 @@ function removeMetadataSection(html) {
         script.textContent.includes('BlogPosting') ||
         script.textContent.includes('ARTICLE SCHEMA')) {
       script.remove();
-      console.log('🗑️ Removed ARTICLE SCHEMA script tag');
+      console.log('Removed ARTICLE SCHEMA script tag');
     }
   });
   
   const cleanedHtml = tempDiv.innerHTML;
-  console.log('✅ Metadata sections removed, content length:', cleanedHtml.length);
+  console.log('Metadata sections removed, content length:', cleanedHtml.length);
   return cleanedHtml;
 }
 
@@ -1549,7 +1549,7 @@ publishBtn.addEventListener('click', async () => {
         if (fileNameWithoutExt) {
           titleValue = fileNameWithoutExt;
           titleInput.value = titleValue; // Update the input field
-          console.log('⚠️ Title was empty, using filename as fallback:', titleValue);
+          console.log('Title was empty, using filename as fallback:', titleValue);
         }
       }
     }
@@ -1558,12 +1558,12 @@ publishBtn.addEventListener('click', async () => {
     if (!titleValue) {
       titleValue = 'Untitled Post';
       titleInput.value = titleValue; // Update the input field
-      console.log('⚠️ Title was empty, using default:', titleValue);
+      console.log('Title was empty, using default:', titleValue);
     }
     
     // Always include title - it's required by Strapi
     blogData.data.title = titleValue;
-    console.log('✅ Title included in request:', titleValue);
+    console.log('Title included in request:', titleValue);
     
     // Add content field (use configured field name, default to 'content')
     let contentFieldName = config.contentFieldName || 'content';
@@ -1604,7 +1604,7 @@ publishBtn.addEventListener('click', async () => {
     
     // First, test which endpoint exists with a GET request
     let validEndpoint = null;
-    console.log('🔍 Testing endpoints to find the correct one...');
+    console.log('Testing endpoints to find the correct one...');
     
     for (const endpoint of endpoints) {
       try {
@@ -1615,7 +1615,7 @@ publishBtn.addEventListener('click', async () => {
           }
         });
         
-        console.log(`🔍 Test GET ${endpoint}:`, {
+        console.log(`Test GET ${endpoint}:`, {
           status: testResponse.status,
           statusText: testResponse.statusText
         });
@@ -1625,11 +1625,11 @@ publishBtn.addEventListener('click', async () => {
         // 405 on GET would be weird, but we'll accept it
         if (testResponse.status !== 404) {
           validEndpoint = endpoint;
-          console.log(`✅ Found valid endpoint: ${endpoint}`);
+          console.log(`Found valid endpoint: ${endpoint}`);
           break;
         }
       } catch (testError) {
-        console.log(`❌ Error testing ${endpoint}:`, testError);
+        console.log(`Error testing ${endpoint}:`, testError);
       }
     }
     
@@ -1644,7 +1644,7 @@ publishBtn.addEventListener('click', async () => {
       lastEndpoint = endpoint;
       
       // Log request details for debugging
-      console.log('🚀 Publishing to Strapi:', {
+      console.log('Publishing to Strapi:', {
         endpoint: endpoint,
         method: 'POST',
         collectionType: config.collectionType,
@@ -1675,13 +1675,13 @@ publishBtn.addEventListener('click', async () => {
         
         // If successful, break out of loop
         if (response.ok) {
-          console.log('✅ Success with endpoint:', endpoint);
+          console.log('Success with endpoint:', endpoint);
           break;
         }
         
         // If 405 and we have another endpoint to try, continue
         if (response.status === 405 && endpointsToTry.indexOf(endpoint) < endpointsToTry.length - 1) {
-          console.log('⚠️ Got 405, trying next endpoint...');
+          console.log('Got 405, trying next endpoint...');
           continue;
         }
         
@@ -1689,10 +1689,10 @@ publishBtn.addEventListener('click', async () => {
         if (response.status === 400) {
           try {
             const errorData = await response.clone().json();
-            console.error('❌ 400 Bad Request details:', errorData);
+            console.error('400 Bad Request details:', errorData);
           } catch (e) {
             const errorText = await response.clone().text();
-            console.error('❌ 400 Bad Request text:', errorText);
+            console.error('400 Bad Request text:', errorText);
           }
         }
         
@@ -1700,7 +1700,7 @@ publishBtn.addEventListener('click', async () => {
         break;
         
       } catch (fetchError) {
-        console.error('❌ Fetch error:', fetchError);
+        console.error('Fetch error:', fetchError);
         lastError = fetchError;
         // Continue to next endpoint if available
         if (endpointsToTry.indexOf(endpoint) < endpointsToTry.length - 1) {
@@ -1719,11 +1719,11 @@ publishBtn.addEventListener('click', async () => {
       if (response) {
         try {
           const contentType = response.headers.get('content-type');
-          console.log('📄 Error response content-type:', contentType);
+          console.log('Error response content-type:', contentType);
           
           if (contentType && contentType.includes('application/json')) {
       const errorData = await response.json();
-            console.error('❌ Error data:', errorData);
+            console.error('Error data:', errorData);
             
             // Check for PolicyError (Policy Failed)
             if (errorData.error?.name === 'PolicyError' || errorData.error?.message === 'Policy Failed') {
@@ -1750,7 +1750,7 @@ publishBtn.addEventListener('click', async () => {
               errorMessage = `400 Bad Request - Field "${invalidKey}" doesn't exist in your Strapi content type`;
               
               // Provide helpful suggestions
-              let suggestions = '\n\n💡 SOLUTION:\n';
+              let suggestions = '\n\nSOLUTION:\n';
               if (invalidKey === 'content') {
                 suggestions += 'The field "content" doesn\'t exist in your blog-post content type.\n\n';
                 suggestions += 'Option 1: Check your Strapi field name\n';
@@ -1792,12 +1792,12 @@ publishBtn.addEventListener('click', async () => {
           } else {
             // If not JSON, read as text
             const errorText = await response.text();
-            console.error('❌ Error text:', errorText);
+            console.error('Error text:', errorText);
             errorMessage = errorText || errorMessage;
             errorDetails = errorText;
           }
         } catch (parseError) {
-          console.error('❌ Error parsing response:', parseError);
+          console.error('Error parsing response:', parseError);
           errorMessage = `HTTP ${response.status}: ${response.statusText}`;
         }
       }
@@ -1813,8 +1813,8 @@ publishBtn.addEventListener('click', async () => {
       
       // Check for 400 Bad Request (data format issue)
       if (response?.status === 400) {
-        fullErrorMessage += `\n\n⚠️ 400 BAD REQUEST - Data Format Issue:\n` +
-          `Good news: The endpoint exists and POST is allowed! ✅\n` +
+        fullErrorMessage += `\n\n400 BAD REQUEST - Data Format Issue:\n` +
+          `Good news: The endpoint exists and POST is allowed!\n` +
           `Bad news: The request data format is incorrect.\n\n` +
           `Common causes:\n` +
           `1. Required fields are missing from your content type\n` +
@@ -1828,7 +1828,7 @@ publishBtn.addEventListener('click', async () => {
           `4. Verify field names match exactly (case-sensitive)\n` +
           `5. Check field types match (text, richtext, date, etc.)\n` +
           `6. If publishAt is set, ensure it's in ISO format: YYYY-MM-DDTHH:mm:ss.sssZ\n\n` +
-          `💡 The endpoint "${lastEndpoint}" is correct - just fix the data format!`;
+          `The endpoint "${lastEndpoint}" is correct - just fix the data format!`;
       }
       // Check for PolicyError (Policy Failed)
       else if (errorMessage.includes('Policy Failed') || errorDetails.includes('PolicyError')) {
@@ -1850,7 +1850,7 @@ publishBtn.addEventListener('click', async () => {
       }
       // Add specific message for 405 errors
       else if (response?.status === 405) {
-        fullErrorMessage += `\n\n⚠️ IMPORTANT: 405 Method Not Allowed means the endpoint exists but POST is not allowed.\n` +
+        fullErrorMessage += `\n\nIMPORTANT: 405 Method Not Allowed means the endpoint exists but POST is not allowed.\n` +
           `This is almost always a PERMISSIONS issue. Both endpoints returned 405, which means:\n` +
           `1. Your API Token likely doesn't have "Create" permission\n` +
           `2. OR the content type permissions are not enabled in Strapi\n\n` +
@@ -1879,14 +1879,14 @@ publishBtn.addEventListener('click', async () => {
     }
     
     const result = await response.json();
-    console.log('✅ Success:', result);
+    console.log('Success:', result);
     
     showLoading(false);
     // Handle both Strapi v4 and v5 response formats
     const postId = result.data?.id || result.data?.attributes?.id || 'unknown';
     const postTitle = result.data?.attributes?.title || result.data?.title || 'Blog Post';
     showStatus(
-      `✅ Blog post created successfully!\nID: ${postId}\nTitle: ${postTitle}`,
+      `Blog post created successfully!\nID: ${postId}\nTitle: ${postTitle}`,
       'success'
     );
     
@@ -1896,8 +1896,8 @@ publishBtn.addEventListener('click', async () => {
     }, 3000);
     
   } catch (error) {
-    console.error('❌ Publishing error:', error);
+    console.error('Publishing error:', error);
     showLoading(false);
-    showStatus(`❌ Error publishing: ${error.message}`, 'error');
+    showStatus(`Error publishing: ${error.message}`, 'error');
   }
 });
