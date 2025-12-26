@@ -1,9 +1,6 @@
 // Global variables
 let parsedContent = null;
 let extractedMetadata = null;
-let extractedImages = []; // Store extracted images from DOCX
-let extractedFAQs = null; // Store extracted FAQs as HTML rich text
-let extractedDisclaimer = ''; // Store extracted disclaimer
 
 // DOM Elements
 const docxFileInput = document.getElementById('docxFile');
@@ -21,9 +18,8 @@ const discoverTypesBtn = document.getElementById('discoverTypes');
 // Configuration inputs
 const strapiUrlInput = document.getElementById('strapiUrl');
 const apiTokenInput = document.getElementById('apiToken');
-// Hardcoded collection type and content field name
-const COLLECTION_TYPE = 'blog-post';
-const CONTENT_FIELD_NAME = 'content';
+const collectionTypeInput = document.getElementById('collectionType');
+const contentFieldNameInput = document.getElementById('contentFieldName');
 
 // Metadata inputs
 const titleInput = document.getElementById('title');
@@ -140,9 +136,6 @@ function resetForm() {
   previewSection.classList.add('hidden');
   parsedContent = null;
   extractedMetadata = null;
-  extractedImages = []; // Reset extracted images
-  extractedFAQs = null; // Reset extracted FAQs
-  extractedDisclaimer = ''; // Reset extracted disclaimer
   
   titleInput.value = '';
   metaTitleInput.value = '';
@@ -154,17 +147,20 @@ function resetForm() {
 }
 
 // Load saved configuration
-    chrome.storage.local.get(['strapiUrl', 'apiToken'], (result) => {
+chrome.storage.local.get(['strapiUrl', 'apiToken', 'collectionType', 'contentFieldName'], (result) => {
   if (result.strapiUrl) strapiUrlInput.value = result.strapiUrl;
   if (result.apiToken) apiTokenInput.value = result.apiToken;
-  // Collection type and content field name are now hardcoded
+  if (result.collectionType) collectionTypeInput.value = result.collectionType;
+  if (result.contentFieldName) contentFieldNameInput.value = result.contentFieldName;
 });
 
 // Save configuration
 saveConfigBtn.addEventListener('click', () => {
   const config = {
     strapiUrl: strapiUrlInput.value.trim(),
-    apiToken: apiTokenInput.value.trim()
+    apiToken: apiTokenInput.value.trim(),
+    collectionType: collectionTypeInput.value.trim(),
+    contentFieldName: contentFieldNameInput.value.trim() || 'content'
   };
   
   if (!config.strapiUrl || !config.apiToken) {
@@ -183,10 +179,11 @@ testConnectionBtn.addEventListener('click', async () => {
   
   const config = {
     strapiUrl: strapiUrlInput.value.trim(),
-    apiToken: apiTokenInput.value.trim()
+    apiToken: apiTokenInput.value.trim(),
+    collectionType: collectionTypeInput.value.trim()
   };
   
-  if (!config.strapiUrl || !config.apiToken) {
+  if (!config.strapiUrl || !config.apiToken || !config.collectionType) {
     showLoading(false);
     showStatus('Please fill in all configuration fields first', 'error');
     return;
@@ -195,8 +192,8 @@ testConnectionBtn.addEventListener('click', async () => {
   try {
     // Strapi v5 uses plural endpoints by default
     const endpoints = [
-      `${config.strapiUrl}/api/${COLLECTION_TYPE}s`,  // Plural (Strapi v5 default)
-      `${config.strapiUrl}/api/${COLLECTION_TYPE}`    // Singular (backward compatibility)
+      `${config.strapiUrl}/api/${config.collectionType}s`,  // Plural (Strapi v5 default)
+      `${config.strapiUrl}/api/${config.collectionType}`    // Singular (backward compatibility)
     ];
     
     let testResults = [];
@@ -320,7 +317,7 @@ testConnectionBtn.addEventListener('click', async () => {
       resultMessage += '3. Data types are wrong (e.g., string vs number)\n\n';
       resultMessage += 'To fix:\n';
       resultMessage += '1. Try publishing - the error message will show which fields are wrong\n';
-      resultMessage += '2. Check Strapi Content-Type Builder → ' + COLLECTION_TYPE + '\n';
+      resultMessage += '2. Check Strapi Content-Type Builder → ' + config.collectionType + '\n';
       resultMessage += '3. Verify required fields (marked with *) are included\n';
       resultMessage += '4. Check field names match exactly (case-sensitive)\n';
       resultMessage += '5. Ensure field types match (text, richtext, etc.)\n';
@@ -358,7 +355,7 @@ testConnectionBtn.addEventListener('click', async () => {
       resultMessage += '  (Only needed if you can\'t use Full access token)\n';
       resultMessage += '  1. Go to: Settings → Users & Permissions Plugin → Roles\n';
       resultMessage += '  2. Click on "Public" (for public API access)\n';
-      resultMessage += '  3. Look for "' + COLLECTION_TYPE + '" in the list\n';
+      resultMessage += '  3. Look for "' + config.collectionType + '" in the list\n';
       resultMessage += '  4. If you only see "find" and "update":\n';
       resultMessage += '     - This might be a Strapi UI bug\n';
       resultMessage += '     - Try refreshing the page\n';
@@ -602,7 +599,7 @@ async function parseDocxFile(file) {
     };
   }
   
-  // Parse with mammoth - extract images and maintain text styles
+  // Parse with mammoth
   const result = await mammoth.convertToHtml(
     { arrayBuffer: arrayBuffer },
     {
@@ -610,69 +607,10 @@ async function parseDocxFile(file) {
         "p[style-name='Heading 1'] => h1",
         "p[style-name='Heading 2'] => h2",
         "p[style-name='Heading 3'] => h3",
-        "p[style-name='Quote'] => blockquote",
-        // Preserve bold, italic, underline styles
-        "r[style-name='Strong'] => strong",
-        "r[style-name='Emphasis'] => em",
-        "r[style-name='Underline'] => u"
-      ],
-      convertImage: mammoth.images.imgElement(function(image) {
-        // Extract image data from DOCX and embed as base64
-        return image.read("base64").then(function(imageBuffer) {
-          return {
-            src: "data:" + image.contentType + ";base64," + imageBuffer
-          };
-        });
-      })
+        "p[style-name='Quote'] => blockquote"
+      ]
     }
   );
-  
-  // Extract images from HTML (mammoth embeds them as base64 data URIs)
-  extractedImages = [];
-  const tempDivForImages = document.createElement('div');
-  tempDivForImages.innerHTML = result.value;
-  const imgElements = tempDivForImages.querySelectorAll('img');
-  
-  imgElements.forEach((img, index) => {
-    if (img.src && img.src.startsWith('data:')) {
-      try {
-        // Extract base64 image data
-        const base64Match = img.src.match(/data:([^;]+);base64,(.+)/);
-        if (base64Match) {
-          const mimeType = base64Match[1];
-          const base64Data = base64Match[2];
-          
-          // Convert base64 to blob
-          const byteCharacters = atob(base64Data);
-          const byteNumbers = new Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-          }
-          const byteArray = new Uint8Array(byteNumbers);
-          const blob = new Blob([byteArray], { type: mimeType });
-          
-          // Determine file extension from mime type
-          const extension = mimeType.split('/')[1] || 'png';
-          
-          // Store image info
-          const imageInfo = {
-            blob: blob,
-            alt: img.alt || `Image ${index + 1}`,
-            filename: `image-${index + 1}.${extension}`,
-            mimeType: mimeType,
-            index: index
-          };
-          
-          extractedImages.push(imageInfo);
-          console.log(`Extracted image ${index + 1}: ${imageInfo.filename} (${mimeType})`);
-        }
-      } catch (error) {
-        console.error(`Error extracting image ${index + 1}:`, error);
-      }
-    }
-  });
-  
-  console.log(`Extracted ${extractedImages.length} images from DOCX`);
   
   let htmlContent = result.value;
   console.log('DOCX converted to HTML, length:', htmlContent.length);
@@ -711,29 +649,17 @@ async function parseDocxFile(file) {
   
   console.log('Final merged metadata:', extractedMetadata);
   
-  // Extract FAQs FIRST from full HTML (before content extraction)
-  // This ensures we capture all FAQs from the document
-  htmlContent = extractAndFormatFAQs(htmlContent);
-  
   // Extract content between "Introduction" and "Disclaimer" (or "Final Thoughts" to "Disclaimer")
-  // If no Introduction found, extract from start or after metadata
-  // Note: FAQ section is already removed by extractAndFormatFAQs
   htmlContent = extractContentSection(htmlContent);
   
   // Remove metadata section from content (URL, Meta-Title, etc.)
   htmlContent = removeMetadataSection(htmlContent);
   
-  // Convert literal HTML tags in text to actual HTML elements (e.g., "<h1>" text → <h1> element)
-  htmlContent = convertLiteralHtmlTags(htmlContent);
-  
   // Clean content: Remove heading tags (h1, h2, h3) and convert to plain text
   htmlContent = cleanContent(htmlContent);
   
-  // Handle images - remove placeholders, images will be uploaded separately
+  // Handle images - replace with placeholders
   htmlContent = handleImages(htmlContent);
-  
-  // Ensure tables are properly preserved
-  htmlContent = preserveTables(htmlContent);
   
   // Handle tables (already in HTML from mammoth)
   
@@ -1007,35 +933,36 @@ async function extractFormFieldsFromDocx(arrayBuffer) {
   return metadata;
 }
 
-// Clean content - preserve headings but ensure proper structure
+// Clean content by removing heading tags and converting to plain text/markdown
 function cleanContent(html) {
-  console.log('Cleaning content - preserving structure...');
+  console.log('Cleaning content - removing heading tags...');
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = html;
   
-  // Keep headings (h1, h2, h3, h4, h5, h6) as they are - they're important for structure
-  // Only clean up unnecessary elements
+  // Remove all heading tags (h1, h2, h3, h4, h5, h6) and convert to plain paragraphs
+  const headings = tempDiv.querySelectorAll('h1, h2, h3, h4, h5, h6');
+  headings.forEach(heading => {
+    const paragraph = document.createElement('p');
+    paragraph.textContent = heading.textContent;
+    // Add some spacing for readability
+    paragraph.style.marginTop = '16px';
+    paragraph.style.marginBottom = '8px';
+    paragraph.style.fontWeight = 'bold';
+    heading.parentNode.replaceChild(paragraph, heading);
+  });
   
-  // Remove any remaining structural elements that shouldn't be in content
-  // Keep: p, h1-h6, strong, em, u, ul, ol, li, blockquote, a, br, table, thead, tbody, tr, td, th
-  const allowedTags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'blockquote', 'a', 'br', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'div', 'span'];
+  // Also remove any remaining structural elements that shouldn't be in markdown
+  // Keep only: p, strong, em, ul, ol, li, blockquote, a, img (will be replaced)
+  const allowedTags = ['p', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'blockquote', 'a', 'br', 'img'];
   const allElements = tempDiv.querySelectorAll('*');
   
   allElements.forEach(element => {
     const tagName = element.tagName.toLowerCase();
-    if (!allowedTags.includes(tagName)) {
-      // Replace with paragraph containing text content, but preserve inner HTML structure
+    if (!allowedTags.includes(tagName) && tagName !== 'div' && tagName !== 'span') {
+      // Replace with paragraph containing text content
       const paragraph = document.createElement('p');
       paragraph.innerHTML = element.innerHTML;
       element.parentNode.replaceChild(paragraph, element);
-    }
-  });
-  
-  // Clean up empty elements
-  const emptyElements = tempDiv.querySelectorAll('p, div, span');
-  emptyElements.forEach(element => {
-    if (!element.textContent.trim() && !element.querySelector('*')) {
-      element.remove();
     }
   });
   
@@ -1061,7 +988,11 @@ async function autoPublishToStrapi() {
       return;
     }
     
-    // Collection type is hardcoded
+    if (!config.collectionType) {
+      showLoading(false);
+      showStatus('Please configure Collection Type in settings', 'error');
+      return;
+    }
     
     // Ensure extractedMetadata is always an object (not null/undefined)
     if (!extractedMetadata || typeof extractedMetadata !== 'object') {
@@ -1114,9 +1045,10 @@ async function autoPublishToStrapi() {
     console.log('Title (validated):', titleValue);
     console.log('Title type:', typeof blogData.data.title);
     
-    // Add content field (hardcoded as 'content')
+    // Add content field
+    let contentFieldName = config.contentFieldName || 'content';
     if (parsedContent) {
-      blogData.data[CONTENT_FIELD_NAME] = parsedContent;
+      blogData.data[contentFieldName] = parsedContent;
     }
     
     // Add optional metadata fields only if they have values (ensure they're strings)
@@ -1134,33 +1066,6 @@ async function autoPublishToStrapi() {
     }
     if (extractedMetadata.publishAt && typeof extractedMetadata.publishAt === 'string' && extractedMetadata.publishAt.trim()) {
       blogData.data.publishAt = extractedMetadata.publishAt.trim();
-      console.log('✅ Including publishAt in blog post data:', blogData.data.publishAt);
-    } else {
-      console.log('No publishAt found in extracted metadata');
-    }
-    
-    // Add FAQs if extracted (as HTML rich text) - field name is "FAQs" (uppercase) in schema
-    if (extractedFAQs && typeof extractedFAQs === 'string' && extractedFAQs.trim()) {
-      blogData.data.FAQs = extractedFAQs;
-      // Count FAQs for logging
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = extractedFAQs;
-      const faqCount = tempDiv.querySelectorAll('h3').length;
-      console.log(`✅ Including ${faqCount} FAQs in blog post data as HTML rich text`);
-      console.log('FAQ HTML preview:', extractedFAQs.substring(0, 200));
-      console.log('FAQ HTML full length:', extractedFAQs.length);
-    } else {
-      console.warn('⚠️ No FAQs to include. extractedFAQs value:', extractedFAQs, 'type:', typeof extractedFAQs);
-      console.warn('extractedFAQs is null?', extractedFAQs === null);
-      console.warn('extractedFAQs is undefined?', extractedFAQs === undefined);
-    }
-    
-    // Add disclaimer if extracted
-    if (extractedDisclaimer && typeof extractedDisclaimer === 'string' && extractedDisclaimer.trim()) {
-      blogData.data.disclaimer = extractedDisclaimer.trim();
-      console.log('Including disclaimer in blog post data');
-    } else {
-      console.warn('No disclaimer to include. extractedDisclaimer value:', extractedDisclaimer);
     }
     
     // Validate title one more time before sending
@@ -1182,8 +1087,8 @@ async function autoPublishToStrapi() {
     
     // Make API request to Strapi
     const endpoints = [
-      `${config.strapiUrl}/api/${COLLECTION_TYPE}s`,
-      `${config.strapiUrl}/api/${COLLECTION_TYPE}`
+      `${config.strapiUrl}/api/${config.collectionType}s`,
+      `${config.strapiUrl}/api/${config.collectionType}`
     ];
     
     let validEndpoint = null;
@@ -1260,49 +1165,14 @@ async function autoPublishToStrapi() {
     
     const result = await response.json();
     console.log('Success:', result);
-    console.log('Full result structure:', JSON.stringify(result, null, 2));
     
-    // Strapi v5 uses documentId, v4 uses id
-    const postId = result.data?.documentId || result.data?.id || result.data?.attributes?.documentId || result.data?.attributes?.id || 'unknown';
+    showLoading(false);
+    const postId = result.data?.id || result.data?.attributes?.id || 'unknown';
     const postTitle = result.data?.attributes?.title || result.data?.title || 'Blog Post';
-    
-    console.log('Extracted postId:', postId);
-    console.log('Extracted postTitle:', postTitle);
-    
-    // Upload and link images if any were extracted
-    if (extractedImages && extractedImages.length > 0) {
-      console.log('Uploading images to Strapi...');
-      try {
-        const uploadedImageIds = await uploadImagesToStrapi(config);
-        
-        if (uploadedImageIds.length > 0) {
-          console.log('Linking images to blog post...');
-          await linkImagesToPost(config, postId, uploadedImageIds);
-          showStatus(
-            `Blog post published successfully!\nID: ${postId}\nTitle: ${postTitle}\nImages: ${uploadedImageIds.length} uploaded`,
-            'success'
-          );
-        } else {
-          showStatus(
-            `Blog post published successfully!\nID: ${postId}\nTitle: ${postTitle}\nNote: Images could not be uploaded`,
-            'success'
-          );
-        }
-      } catch (imageError) {
-        console.error('Error uploading images:', imageError);
-        showStatus(
-          `Blog post published successfully!\nID: ${postId}\nTitle: ${postTitle}\nWarning: Image upload failed`,
-          'success'
-        );
-      }
-    } else {
     showStatus(
       `Blog post published successfully!\nID: ${postId}\nTitle: ${postTitle}`,
       'success'
     );
-    }
-    
-    showLoading(false);
     
     // Clear form after successful publish
     setTimeout(() => {
@@ -1517,18 +1387,10 @@ function extractContentSection(html) {
     }
   }
   
-  // Find "FAQs:", "Disclaimer", or "Final Thoughts" paragraph (whichever comes first after Introduction)
-  // FAQs section should be excluded from content
+  // Find "Disclaimer" or "Final Thoughts" paragraph (whichever comes first after Introduction)
   if (startIndex >= 0) {
     for (let i = startIndex + 1; i < paragraphs.length; i++) {
       const text = paragraphs[i].textContent.trim().toLowerCase();
-      // Stop at FAQs (FAQ section will be extracted separately)
-      if (text.includes('faq') || text === 'faqs:') {
-        endIndex = i;
-        console.log('Found FAQs section at index:', endIndex, '- stopping content extraction here');
-        break;
-      }
-      // Or stop at Disclaimer/Final Thoughts
       if (text === 'disclaimer' || text.startsWith('disclaimer') || 
           text === 'final thoughts' || text.startsWith('final thoughts')) {
         endIndex = i;
@@ -1555,43 +1417,9 @@ function extractContentSection(html) {
     console.log('Only Introduction found, extracting from Introduction to end');
     return contentDiv.innerHTML;
   } else {
-    // If neither found, try to find content after metadata/keywords/topic
-    // Look for patterns like "Topic:", "Keywords:" and extract content after them
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = html;
-    const allParagraphs = tempDiv.querySelectorAll('p');
-    
-    let contentStartIndex = -1;
-    
-    // Look for "Topic:" or "Keywords:" markers
-    for (let i = 0; i < allParagraphs.length; i++) {
-      const text = allParagraphs[i].textContent.trim().toLowerCase();
-      if (text.startsWith('topic:') || text.startsWith('keywords:')) {
-        // Start content from next paragraph
-        contentStartIndex = i + 1;
-        console.log('Found Topic/Keywords marker, starting content from index:', contentStartIndex);
-        break;
-      }
-    }
-    
-    // If still no start found, use all content (metadata will be removed later)
-    if (contentStartIndex === -1) {
-      console.log('No Introduction or Topic marker found, using all content');
+    // If neither found, return original content
+    console.log('Introduction not found, returning original content');
     return html;
-    }
-    
-    // Extract from content start to disclaimer (or end)
-    const contentDiv = document.createElement('div');
-    for (let i = contentStartIndex; i < allParagraphs.length; i++) {
-      const text = allParagraphs[i].textContent.trim().toLowerCase();
-      if (text === 'disclaimer' || text.startsWith('disclaimer')) {
-        break; // Stop at disclaimer
-      }
-      contentDiv.appendChild(allParagraphs[i].cloneNode(true));
-    }
-    
-    console.log('Extracted content from Topic/Keywords marker');
-    return contentDiv.innerHTML || html;
   }
 }
 
@@ -1610,15 +1438,12 @@ function removeMetadataSection(html) {
     /^(meta-title|Meta-Title|metatitle|metaTitle|meta title|Meta Title)\s*[:\-=\|]/i,
     /^(meta-description|Meta-Description|metadescription|metaDescription|meta description|Meta Description)\s*[:\-=\|]/i,
     /^(meta-keywords|Meta-Keywords|metakeywords|metaKeywords|meta keywords|Meta Keywords)\s*[:\-=\|]/i,
-    /^(keywords|Keywords)\s*[:\-=\|]/i,  // Handle "Keywords:" field
-    /^(topic|Topic)\s*[:\-=\|]/i,  // Handle "Topic:" field (but don't remove, it's content)
     /^(image alt|Image ALT|imageAlt|image-alt|Image-ALT)\s*[:\-=\|]/i,
     /^(canonicalurl|canonicalUrl|canonical url|Canonical URL)\s*[:\-=\|]/i,
     /^(publishat|publishAt|publish at|Publish At)\s*[:\-=\|]/i,
     /^(title|Title)\s*[:\-=\|]/i,
     /^ARTICLE SCHEMA:/i,
     /^References$/i,
-    /^FAQ\s+Schema$/i,
     /^<script/i  // Remove script tags (ARTICLE SCHEMA JSON-LD)
   ];
   
@@ -1629,21 +1454,11 @@ function removeMetadataSection(html) {
     const htmlContent = paragraphs[i].innerHTML.trim();
     
     // Check if paragraph matches any metadata pattern
-    // Special handling for Topic: - don't remove if it contains HTML tags (it's content)
-    const isTopicWithContent = /^(topic|Topic)\s*[:\-=\|]/i.test(text) && htmlContent.includes('<');
-    
-    if (!isTopicWithContent) {
     for (const pattern of metadataPatterns) {
-        // Skip Topic pattern if it has HTML content (it's a heading, not metadata)
-        if (pattern.source.includes('topic') && htmlContent.includes('<')) {
-          continue;
-        }
-        
       if (pattern.test(text) || pattern.test(htmlContent)) {
         toRemove.push(paragraphs[i]);
         console.log('Removing metadata paragraph:', text.substring(0, 50));
         break;
-        }
       }
     }
     
@@ -1681,1102 +1496,26 @@ function removeMetadataSection(html) {
   return cleanedHtml;
 }
 
-// Convert literal HTML tags in text to actual HTML elements
-// Example: "Topic: Share Market Outlook Today <h1>" → "Topic: Share Market Outlook Today" as <h1>
-function convertLiteralHtmlTags(html) {
-  console.log('Converting literal HTML tags to actual elements...');
-  const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = html;
-  
-  // Handle paragraphs that contain HTML tags as direct content
-  // Pattern: "text <h1>", "text <h2>", etc.
-  const paragraphs = tempDiv.querySelectorAll('p');
-  const paragraphsToProcess = [];
-  
-  paragraphs.forEach(p => {
-    const text = p.textContent.trim();
-    // Match patterns like "text <h1>", "text <h2>", etc. (with or without closing tag)
-    const htmlTagPattern = /^(.+?)\s*<(h[1-6])>$/i;
-    const match = text.match(htmlTagPattern);
-    
-    if (match) {
-      paragraphsToProcess.push({
-        element: p,
-        beforeTag: match[1].trim(),
-        tagName: match[2].toLowerCase()
-      });
-    }
-  });
-  
-  // Process and convert paragraphs to headings
-  paragraphsToProcess.forEach(({ element, beforeTag, tagName }) => {
-    const heading = document.createElement(tagName);
-    heading.textContent = beforeTag;
-    element.parentNode.replaceChild(heading, element);
-    console.log(`Converted paragraph to ${tagName}: "${beforeTag}"`);
-  });
-  
-  // Also handle text nodes that contain HTML tags
-  const walker = document.createTreeWalker(
-    tempDiv,
-    NodeFilter.SHOW_TEXT,
-    null,
-    false
-  );
-  
-  const textNodesToProcess = [];
-  let node;
-  while (node = walker.nextNode()) {
-    if (node.textContent && /<h[1-6]>/i.test(node.textContent)) {
-      const text = node.textContent;
-      const htmlTagPattern = /(.+?)\s*<(h[1-6])>/i;
-      const match = text.match(htmlTagPattern);
-      
-      if (match) {
-        textNodesToProcess.push({
-          node: node,
-          beforeTag: match[1].trim(),
-          tagName: match[2].toLowerCase(),
-          afterTag: text.substring(match[0].length).trim()
-        });
-      }
-    }
-  }
-  
-  // Process text nodes
-  textNodesToProcess.forEach(({ node, beforeTag, tagName, afterTag }) => {
-    const heading = document.createElement(tagName);
-    heading.textContent = beforeTag;
-    
-    const parent = node.parentNode;
-    if (parent.tagName === 'P' || parent.tagName === 'p') {
-      // Replace paragraph with heading
-      parent.parentNode.replaceChild(heading, parent);
-    } else {
-      // Replace text node with heading
-      if (afterTag) {
-        // If there's text after the tag, create a text node for it
-        const afterTextNode = document.createTextNode(afterTag);
-        node.parentNode.replaceChild(heading, node);
-        heading.parentNode.insertBefore(afterTextNode, heading.nextSibling);
-      } else {
-        node.parentNode.replaceChild(heading, node);
-      }
-    }
-  });
-  
-  return tempDiv.innerHTML;
-}
-
-// Handle images - remove placeholders, images will be uploaded separately
-// Images are already extracted and stored in extractedImages array
+// Handle images - replace with placeholders
 function handleImages(html) {
+  // Mammoth might not extract images by default, but if it does,
+  // we'll replace them with placeholders
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = html;
   
-  // Remove image placeholders like [IMAGE 1: Image 1]
-  const allElements = tempDiv.querySelectorAll('*');
-  allElements.forEach(element => {
-    const text = element.textContent || '';
-    if (/\[IMAGE\s+\d+:/i.test(text)) {
-      // Check if this element only contains the image placeholder
-      if (element.textContent.trim().match(/^\[IMAGE\s+\d+:.+\]$/i)) {
-        // Remove the element entirely
-        element.remove();
-      } else {
-        // Remove just the placeholder text from the element
-        element.textContent = element.textContent.replace(/\[IMAGE\s+\d+:[^\]]+\]/gi, '').trim();
-      }
-    }
-  });
-  
-  // Also remove actual img tags (they're already extracted)
   const images = tempDiv.querySelectorAll('img');
-  images.forEach((img) => {
-    img.remove();
-  });
-  
-  // Remove empty paragraphs that might have been left behind
-  const emptyParagraphs = tempDiv.querySelectorAll('p');
-  emptyParagraphs.forEach(p => {
-    if (!p.textContent.trim() && !p.querySelector('*')) {
-      p.remove();
-    }
-  });
-  
-  return tempDiv.innerHTML;
-}
-
-// Convert text-based table structures to HTML tables
-// Handles patterns like:
-// - "Exponential Moving Averages" followed by "200 DEMA", "55,676", "21 DEMA", "59,081"
-// - "L1", "L2", "Close", "Resistance", "59900", "60500", "58,926", "Support", "58500", "58000"
-function convertTextToTables(html) {
-  console.log('Converting text-based structures to tables...');
-  const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = html;
-  
-  // Find paragraphs that might be table data
-  const paragraphs = Array.from(tempDiv.querySelectorAll('p'));
-  const processedIndices = new Set();
-  
-  // Patterns to detect table headers
-  const tableHeaderPatterns = [
-    /^Exponential Moving Averages$/i,
-    /^.*Support and Resistance Level$/i,
-    /^.*Support and Resistance$/i
-  ];
-  
-  // Look for table structures
-  for (let i = 0; i < paragraphs.length; i++) {
-    if (processedIndices.has(i)) continue;
-    
-    const p = paragraphs[i];
-    const text = p.textContent.trim();
-    
-    // Check if this is a table header
-    const isHeader = tableHeaderPatterns.some(pattern => pattern.test(text));
-    
-    if (isHeader) {
-      // Look ahead to find table rows
-      const rows = [];
-      let j = i + 1;
-      
-      // Collect rows until we hit a non-table paragraph or heading
-      while (j < paragraphs.length && rows.length < 20) { // Limit to 20 rows
-        const nextP = paragraphs[j];
-        const nextText = nextP.textContent.trim();
-        
-        // Check if next paragraph is a heading (stops table)
-        if (nextP.tagName && /^H[1-6]$/i.test(nextP.tagName)) {
-          break;
-        }
-        
-        // Check if it looks like table data
-        // Patterns: numbers with commas, labels like "200 DEMA", "L1", "L2", etc.
-        const looksLikeTableData = /^(\d+[\s,]*\d*|L\d+|DEMA|\d+\.\d+|[A-Z][a-z]+\s+\d+|[A-Z]+|Resistance|Support|Close)$/i.test(nextText) ||
-                                    /^\d+[\s,]*\d*$/.test(nextText) ||
-                                    /^(Resistance|Support|Close|L1|L2|L3)$/i.test(nextText) ||
-                                    (nextText.length < 30 && /^[A-Z0-9\s,]+$/.test(nextText));
-        
-        if (looksLikeTableData) {
-          rows.push({ element: nextP, text: nextText });
-          processedIndices.add(j);
-          j++;
-        } else {
-          // If we have at least 2 rows, consider it a table
-          if (rows.length >= 2) {
-            break;
-          } else {
-            // Not enough rows, not a table
-            break;
-          }
-        }
-      }
-      
-          // Only create table if we have at least 2 rows (to avoid false positives)
-      // AND the header text matches specific patterns
-      const isDefiniteTableHeader = /Exponential Moving Averages|Support and Resistance Level|Support and Resistance/i.test(text);
-      
-      if (rows.length >= 2 && isDefiniteTableHeader) {
-        try {
-          const table = document.createElement('table');
-          table.setAttribute('style', 'width: 100%; border-collapse: collapse; margin: 16px 0;');
-          
-          // Add header row
-          const thead = document.createElement('thead');
-          const headerRow = document.createElement('tr');
-          const headerCell = document.createElement('th');
-          headerCell.setAttribute('colspan', '2');
-          headerCell.setAttribute('style', 'border: 1px solid #ddd; padding: 8px; text-align: left; font-weight: bold; background-color: #f5f5f5;');
-          headerCell.textContent = text;
-          headerRow.appendChild(headerCell);
-          thead.appendChild(headerRow);
-          table.appendChild(thead);
-          
-          // Process rows - detect structure
-          const tbody = document.createElement('tbody');
-          
-          // Check if it's a two-column structure (label: value)
-          // Pattern: "200 DEMA" followed by "55,676"
-          const isTwoColumn = rows.length >= 2 && 
-                             (/DEMA|EMA/i.test(rows[0].text) || /^\d+[\s,]*\d*$/.test(rows[1].text));
-          
-          if (isTwoColumn) {
-            // Two-column: label in first column, value in second
-            for (let k = 0; k < rows.length; k += 2) {
-              if (k + 1 < rows.length) {
-                const row = document.createElement('tr');
-                const labelCell = document.createElement('td');
-                const valueCell = document.createElement('td');
-                
-                labelCell.setAttribute('style', 'border: 1px solid #ddd; padding: 8px; text-align: left; font-weight: bold;');
-                valueCell.setAttribute('style', 'border: 1px solid #ddd; padding: 8px; text-align: left;');
-                
-                labelCell.textContent = rows[k].text;
-                valueCell.textContent = rows[k + 1].text;
-                
-                row.appendChild(labelCell);
-                row.appendChild(valueCell);
-                tbody.appendChild(row);
-              }
-            }
-          } else {
-            // Multi-column structure: try to detect columns
-            // Look for header row pattern: "L1", "L2", "Close", "Resistance", "Support"
-            let headerRowIndex = -1;
-            for (let k = 0; k < Math.min(3, rows.length); k++) {
-              const rowText = rows[k].text;
-              if (/^(L\d+|Close|Resistance|Support)$/i.test(rowText) || 
-                  rowText.split(/\s+/).length >= 3) {
-                headerRowIndex = k;
-                break;
-              }
-            }
-            
-            if (headerRowIndex >= 0) {
-              // Create header row
-              const headerRow = document.createElement('tr');
-              const headerCells = rows[headerRowIndex].text.trim().split(/\s+/);
-              headerCells.forEach(cellText => {
-                if (cellText.trim()) {
-                  const th = document.createElement('th');
-                  th.setAttribute('style', 'border: 1px solid #ddd; padding: 8px; text-align: left; font-weight: bold; background-color: #f5f5f5;');
-                  th.textContent = cellText.trim();
-                  headerRow.appendChild(th);
-                }
-              });
-              tbody.appendChild(headerRow);
-              
-              // Create data rows
-              for (let k = headerRowIndex + 1; k < rows.length; k++) {
-                const row = document.createElement('tr');
-                // Try splitting by whitespace, but also handle cases where values might be in single cell
-                const cells = rows[k].text.trim().split(/\s{2,}|\t/).filter(c => c.trim());
-                
-                // If split didn't work well, try splitting by single space but group numbers
-                if (cells.length < 2) {
-                  const parts = rows[k].text.trim().split(/\s+/);
-                  cells.length = 0;
-                  cells.push(...parts);
-                }
-                
-                cells.forEach(cellText => {
-                  if (cellText.trim()) {
-                    const td = document.createElement('td');
-                    td.setAttribute('style', 'border: 1px solid #ddd; padding: 8px; text-align: left;');
-                    td.textContent = cellText.trim();
-                    row.appendChild(td);
-                  }
-                });
-                
-                if (row.children.length > 0) {
-                  tbody.appendChild(row);
-                }
-              }
-            } else {
-              // Default: create simple two-column from pairs
-              for (let k = 0; k < rows.length; k += 2) {
-                if (k + 1 < rows.length) {
-                  const row = document.createElement('tr');
-                  const cell1 = document.createElement('td');
-                  const cell2 = document.createElement('td');
-                  
-                  cell1.setAttribute('style', 'border: 1px solid #ddd; padding: 8px; text-align: left;');
-                  cell2.setAttribute('style', 'border: 1px solid #ddd; padding: 8px; text-align: left;');
-                  
-                  cell1.textContent = rows[k].text;
-                  cell2.textContent = rows[k + 1].text;
-                  
-                  row.appendChild(cell1);
-                  row.appendChild(cell2);
-                  tbody.appendChild(row);
-                }
-              }
-            }
-          }
-          
-          table.appendChild(tbody);
-          
-          // Replace the header paragraph and all row paragraphs with the table
-          const container = document.createElement('div');
-          container.appendChild(table);
-          
-          // Insert table before the header paragraph
-          p.parentNode.insertBefore(container, p);
-          
-          // Remove all the original paragraphs
-          p.remove();
-          rows.forEach(rowData => {
-            if (rowData.element.parentNode) {
-              rowData.element.remove();
-            }
-          });
-          
-          processedIndices.add(i);
-          console.log(`Converted table: "${text}" with ${rows.length} rows`);
-        } catch (error) {
-          console.error(`Error converting table:`, error);
-        }
-      }
-    }
-  }
-  
-  return tempDiv.innerHTML;
-}
-
-// Preserve tables properly - ensure proper HTML structure
-function preserveTables(html) {
-  console.log('Preserving tables structure...');
-  
-  const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = html;
-  
-  // First, check what tables mammoth already converted
-  const mammothTables = tempDiv.querySelectorAll('table');
-  console.log(`Mammoth already converted ${mammothTables.length} tables`);
-  
-  // Only convert text-based structures if mammoth didn't find tables
-  // AND only for specific table patterns (don't convert everything)
-  if (mammothTables.length < 4) {
-    // Only convert if we have specific table header patterns
-    html = convertTextToTables(html);
-    tempDiv.innerHTML = html;
-  }
-  
-  // Check total tables after conversion
-  const allTables = tempDiv.querySelectorAll('table');
-  console.log(`Total tables found: ${allTables.length}`);
-  
-  // Mammoth should already convert tables to HTML, but ensure they're preserved
-  const tables = tempDiv.querySelectorAll('table');
-  console.log(`Found ${tables.length} tables to preserve`);
-  
-  tables.forEach((table, tableIndex) => {
-    // Ensure table has proper structure
-    const hasThead = table.querySelector('thead');
-    const hasTbody = table.querySelector('tbody');
-    const rows = table.querySelectorAll('tr');
-    
-    if (!hasThead && !hasTbody && rows.length > 0) {
-      // If table doesn't have thead/tbody, wrap rows in tbody
-      const tbody = document.createElement('tbody');
-      rows.forEach(row => {
-        tbody.appendChild(row.cloneNode(true));
-        row.remove();
-      });
-      table.appendChild(tbody);
-      console.log(`Table ${tableIndex + 1}: Wrapped ${rows.length} rows in tbody`);
-    } else if (hasTbody) {
-      // Ensure tbody has proper structure
-      const tbody = table.querySelector('tbody');
-      const tbodyRows = tbody.querySelectorAll('tr');
-      tbodyRows.forEach(row => {
-        // Ensure each row has proper td/th elements
-        const cells = row.querySelectorAll('td, th');
-        if (cells.length === 0) {
-          // If row has no cells, try to get text and create cells
-          const rowText = row.textContent.trim();
-          if (rowText) {
-            const cell = document.createElement('td');
-            cell.textContent = rowText;
-            row.appendChild(cell);
-          }
-        }
-      });
-    }
-    
-    // Ensure table has proper styling for display
-    if (!table.hasAttribute('style')) {
-      table.setAttribute('style', 'width: 100%; border-collapse: collapse; margin: 16px 0;');
-    }
-    
-    // Style table cells
-    const allCells = table.querySelectorAll('td, th');
-    allCells.forEach(cell => {
-      if (!cell.hasAttribute('style')) {
-        cell.setAttribute('style', 'border: 1px solid #ddd; padding: 8px; text-align: left;');
-      }
-    });
+  images.forEach((img, index) => {
+    const alt = img.alt || `Image ${index + 1}`;
+    const placeholder = document.createElement('p');
+    placeholder.innerHTML = `<strong>[IMAGE PLACEHOLDER: ${alt}]</strong>`;
+    placeholder.style.color = '#e74c3c';
+    placeholder.style.backgroundColor = '#ffeaa7';
+    placeholder.style.padding = '10px';
+    placeholder.style.borderRadius = '4px';
+    img.parentNode.replaceChild(placeholder, img);
   });
   
   return tempDiv.innerHTML;
-}
-
-// Extract FAQs from content (from "FAQ" term until "Disclaimer") and remove FAQ section
-// Stores FAQs in extractedFAQs as HTML rich text format
-// Also extracts disclaimer section
-function extractAndFormatFAQs(html) {
-  console.log('Extracting FAQ and Disclaimer sections...');
-  console.log('HTML length:', html.length);
-  const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = html;
-  
-  // Reset
-  extractedFAQs = null;
-  extractedDisclaimer = '';
-  
-  // Find FAQ section - search in all elements (headings, paragraphs, etc.)
-  const allElements = Array.from(tempDiv.querySelectorAll('*'));
-  const allHeadings = Array.from(tempDiv.querySelectorAll('h1, h2, h3, h4, h5, h6'));
-  const allParagraphs = Array.from(tempDiv.querySelectorAll('p'));
-  
-  console.log(`Found ${allHeadings.length} headings, ${allParagraphs.length} paragraphs`);
-  
-  // Log first few headings and paragraphs for debugging
-  console.log('First 10 headings:', Array.from(allHeadings).slice(0, 10).map(h => ({
-    tag: h.tagName,
-    text: h.textContent.trim().substring(0, 80)
-  })));
-  console.log('First 10 paragraphs:', Array.from(allParagraphs).slice(0, 10).map(p => ({
-    text: p.textContent.trim().substring(0, 80)
-  })));
-  
-  // Also search for "FAQs:" or "FAQ:" in all text
-  const allText = tempDiv.textContent || '';
-  const faqTextIndex = allText.toLowerCase().indexOf('faqs:');
-  const faqTextIndex2 = allText.toLowerCase().indexOf('faq:');
-  console.log('FAQ text found at positions:', faqTextIndex, faqTextIndex2);
-  if (faqTextIndex !== -1) {
-    console.log('Context around FAQ:', allText.substring(Math.max(0, faqTextIndex - 50), Math.min(allText.length, faqTextIndex + 200)));
-  }
-  
-  let faqStartElement = null;
-  let disclaimerStartElement = null;
-  
-  // Find FAQ section - check headings first (more flexible matching)
-  for (let i = 0; i < allHeadings.length; i++) {
-    const text = allHeadings[i].textContent.trim().toLowerCase();
-    if (text.includes('faq') || text === 'faqs:' || text.startsWith('faqs') || text === 'faq:') {
-      faqStartElement = allHeadings[i];
-      console.log('Found FAQ section at heading:', allHeadings[i].textContent, 'Tag:', allHeadings[i].tagName);
-      break;
-    }
-  }
-  
-  // If not in headings, check paragraphs
-  if (!faqStartElement) {
-    for (let i = 0; i < allParagraphs.length; i++) {
-      const text = allParagraphs[i].textContent.trim().toLowerCase();
-      if (text.includes('faq') && (text.startsWith('faq') || text.includes('faqs:') || text.startsWith('faqs'))) {
-        faqStartElement = allParagraphs[i];
-        console.log('Found FAQ section at paragraph:', text.substring(0, 50));
-        break;
-      }
-    }
-  }
-  
-  // Also check all text content for FAQ keyword
-  if (!faqStartElement) {
-    const allText = tempDiv.textContent || '';
-    const faqIndex = allText.toLowerCase().indexOf('faq');
-    if (faqIndex !== -1) {
-      console.log('Found "FAQ" keyword in text at position:', faqIndex);
-      // Try to find the element containing this text
-      const walker = document.createTreeWalker(
-        tempDiv,
-        NodeFilter.SHOW_TEXT,
-        null,
-        false
-      );
-      let node;
-      while (node = walker.nextNode()) {
-        if (node.textContent && node.textContent.toLowerCase().includes('faq')) {
-          faqStartElement = node.parentElement;
-          console.log('Found FAQ in text node, parent element:', faqStartElement.tagName);
-          break;
-        }
-      }
-    }
-  }
-  
-  // Find Disclaimer section
-  for (let i = 0; i < allHeadings.length; i++) {
-    const text = allHeadings[i].textContent.trim().toLowerCase();
-    if (text.includes('disclaimer') || text.startsWith('disclaimer')) {
-      disclaimerStartElement = allHeadings[i];
-      console.log('Found Disclaimer section at heading:', allHeadings[i].textContent);
-      break;
-    }
-  }
-  
-  // If not in headings, check paragraphs
-  if (!disclaimerStartElement) {
-    for (let i = 0; i < allParagraphs.length; i++) {
-      const text = allParagraphs[i].textContent.trim().toLowerCase();
-      if (text.includes('disclaimer') && text.startsWith('disclaimer')) {
-        disclaimerStartElement = allParagraphs[i];
-        console.log('Found Disclaimer section at paragraph');
-        break;
-      }
-    }
-  }
-  
-  // Extract FAQs from FAQ section to Disclaimer
-  let faqQuestionsCount = 0; // Track count for comparison
-  
-  console.log('=== FAQ EXTRACTION DEBUG ===');
-  console.log('FAQ start element found:', !!faqStartElement);
-  console.log('Disclaimer start element found:', !!disclaimerStartElement);
-  
-  if (!faqStartElement) {
-    console.error('❌ FAQ section NOT FOUND! Searching for FAQ text in document...');
-    // Try to find FAQ in raw HTML
-    const htmlText = html.toLowerCase();
-    const faqPos = htmlText.indexOf('faqs:');
-    if (faqPos !== -1) {
-      console.log('Found "FAQs:" in HTML at position:', faqPos);
-      console.log('Context:', html.substring(Math.max(0, faqPos - 100), Math.min(html.length, faqPos + 500)));
-    }
-  }
-  
-  if (!disclaimerStartElement) {
-    console.error('❌ Disclaimer section NOT FOUND!');
-  }
-  
-  if (faqStartElement && disclaimerStartElement) {
-    console.log('✅ Both FAQ and Disclaimer found, extracting FAQs...');
-    console.log('FAQ start element:', faqStartElement.tagName, faqStartElement.textContent.substring(0, 50));
-    console.log('Disclaimer start element:', disclaimerStartElement.tagName, disclaimerStartElement.textContent.substring(0, 50));
-    
-    const faqQuestions = [];
-    let currentQuestion = null;
-    let currentAnswer = [];
-    
-    // Get all elements between FAQ and Disclaimer
-    // Use a more comprehensive approach - get all siblings
-    let currentElement = faqStartElement;
-    const allElementsBetween = [];
-    
-    // Collect all elements from FAQ to Disclaimer
-    while (currentElement && currentElement !== disclaimerStartElement) {
-      // Move to next sibling
-      currentElement = currentElement.nextSibling;
-      
-      // Stop if we reached disclaimer
-      if (currentElement === disclaimerStartElement) {
-        break;
-      }
-      
-      // Stop if current element is null
-      if (!currentElement) {
-        break;
-      }
-      
-      // Check if this element contains disclaimer text
-      const text = currentElement.textContent ? currentElement.textContent.trim().toLowerCase() : '';
-      if (text.includes('disclaimer') && text.startsWith('disclaimer')) {
-        break;
-      }
-      
-      // Add to collection
-      allElementsBetween.push(currentElement);
-      
-      // Safety check
-      if (allElementsBetween.length > 200) {
-        console.warn('Too many elements, stopping collection');
-        break;
-      }
-    }
-    
-    console.log(`Collected ${allElementsBetween.length} elements between FAQ and Disclaimer`);
-    
-    // Process all collected elements
-    for (let i = 0; i < allElementsBetween.length; i++) {
-      const element = allElementsBetween[i];
-      const tagName = element.tagName ? element.tagName.toLowerCase() : '';
-      const text = element.textContent ? element.textContent.trim() : '';
-      
-      // Skip empty elements
-      if (!text || text.length === 0) {
-        continue;
-      }
-      
-      // Skip script tags
-      if (tagName === 'script') {
-        continue;
-      }
-      
-      // Skip FAQ schema text
-      if (text.toLowerCase().includes('faq schema')) {
-        continue;
-      }
-      
-      // Stop if we hit disclaimer
-      if (text.toLowerCase().includes('disclaimer') && text.toLowerCase().startsWith('disclaimer')) {
-        console.log('Reached disclaimer, stopping FAQ extraction');
-        break;
-      }
-      
-      // Clean text from HTML tags and markers
-      let cleanText = text.replace(/<mark[^>]*>.*?<\/mark>/gi, '').trim();
-      cleanText = cleanText.replace(/<[^>]+>/g, '').trim();
-      
-      // Check for "Question:" format (e.g., "Question: What is Nifty?")
-      const questionMatch = cleanText.match(/^Question:\s*(.+)$/i);
-      const answerMatch = cleanText.match(/^Answer:\s*(.+)$/i);
-      
-      if (questionMatch) {
-        // Save previous FAQ if we have one
-        if (currentQuestion && currentAnswer.length > 0) {
-          faqQuestions.push({
-            question: currentQuestion,
-            answer: currentAnswer.join(' ').trim()
-          });
-          console.log(`✅ FAQ ${faqQuestions.length}: "${currentQuestion.substring(0, 60)}..."`);
-        }
-        
-        // Start new FAQ - extract question text after "Question:"
-        currentQuestion = questionMatch[1].trim();
-        currentAnswer = [];
-        console.log(`📝 New question found: "${currentQuestion.substring(0, 60)}..."`);
-      } else if (answerMatch) {
-        // This is an answer - extract answer text after "Answer:"
-        const answerText = answerMatch[1].trim();
-        if (answerText.length > 5) {
-          currentAnswer.push(answerText);
-          console.log(`  ➕ Answer part (${answerText.length} chars): "${answerText.substring(0, 40)}..."`);
-        }
-      } else if (currentQuestion) {
-        // This might be a continuation of the answer (paragraphs without "Answer:" prefix)
-        // Only add if it doesn't look like a new question
-        if (tagName === 'p' || tagName === 'div' || tagName === 'li' || tagName === 'span') {
-          // Check if this looks like a question (starts with "Question:" or question word)
-          const looksLikeQuestion = /^Question:/i.test(cleanText) || 
-                                   /^(What|How|Why|When|Where|Who|Which|Is|Are|Can|Do|Does|Will|Should|Would|Could)/i.test(cleanText) && cleanText.length < 100;
-          
-          if (!looksLikeQuestion && 
-              cleanText.length > 5 && 
-              !cleanText.toLowerCase().includes('faq schema') && 
-              !cleanText.toLowerCase().includes('disclaimer')) {
-            currentAnswer.push(cleanText);
-            console.log(`  ➕ Answer continuation (${cleanText.length} chars): "${cleanText.substring(0, 40)}..."`);
-          }
-        }
-      } else {
-        // If we don't have a current question yet, check if this might be the first question
-        // Look for H3 tags or paragraphs that start with question words
-        const questionPattern = /^(What|How|Why|When|Where|Who|Which|Is|Are|Can|Do|Does|Will|Should|Would|Could|How many|How much|How long|How often|How do|How does|How can|How will)/i;
-        const isQuestionHeading = tagName === 'h3';
-        const isQuestionParagraph = tagName === 'p' && cleanText.length > 5 && cleanText.length < 200 && (
-          cleanText.endsWith('?') || 
-          questionPattern.test(cleanText) ||
-          (cleanText.length < 100 && /^(What|How|Why|When|Where|Who|Which)/i.test(cleanText))
-        );
-        
-        if (isQuestionHeading || isQuestionParagraph) {
-          currentQuestion = cleanText;
-          currentAnswer = [];
-          console.log(`📝 First question found: "${currentQuestion.substring(0, 60)}..."`);
-        }
-      }
-    }
-    
-    // Save last FAQ
-    if (currentQuestion && currentAnswer.length > 0) {
-      faqQuestions.push({
-        question: currentQuestion,
-        answer: currentAnswer.join(' ').trim()
-      });
-      console.log(`✅ Found FAQ: "${currentQuestion.substring(0, 50)}..."`);
-    }
-    
-    console.log(`📊 Total FAQs extracted: ${faqQuestions.length}`);
-    
-    // Convert to HTML rich text format
-    if (faqQuestions.length > 0) {
-      faqQuestionsCount = faqQuestions.length;
-      const faqContainer = document.createElement('div');
-      faqContainer.className = 'faq-section';
-      
-      // Add FAQ heading
-      const faqHeading = document.createElement('h2');
-      faqHeading.textContent = 'FAQs';
-      faqContainer.appendChild(faqHeading);
-      
-      // Add each FAQ as formatted Q&A
-      faqQuestions.forEach((faq, index) => {
-        // Question as H3
-        const questionHeading = document.createElement('h3');
-        questionHeading.textContent = faq.question;
-        faqContainer.appendChild(questionHeading);
-        
-        // Answer as paragraph(s)
-        const answerText = faq.answer;
-        if (answerText) {
-          // Split answer by line breaks and create paragraphs
-          const answerLines = answerText.split('\n').filter(line => line.trim());
-          if (answerLines.length > 0) {
-            answerLines.forEach(line => {
-              const trimmedLine = line.trim();
-              if (trimmedLine) {
-                const answerPara = document.createElement('p');
-                answerPara.textContent = trimmedLine;
-                faqContainer.appendChild(answerPara);
-              }
-            });
-          } else {
-            // If no line breaks, just add as single paragraph
-            const answerPara = document.createElement('p');
-            answerPara.textContent = answerText.trim();
-            faqContainer.appendChild(answerPara);
-          }
-        }
-      });
-      
-      // Get HTML string
-      extractedFAQs = faqContainer.innerHTML;
-      console.log(`Extracted ${faqQuestions.length} FAQs as HTML rich text`);
-      console.log('FAQ HTML:', extractedFAQs.substring(0, 300));
-    } else {
-      console.warn('No FAQs found in content between FAQ and Disclaimer sections');
-    }
-  } else {
-    console.warn('FAQ or Disclaimer section not found. FAQ start:', !!faqStartElement, 'Disclaimer start:', !!disclaimerStartElement);
-  }
-  
-  // Also try to extract from schema script tag (as backup/primary source)
-  console.log('Checking for FAQ schema in script tags...');
-  const scripts = tempDiv.querySelectorAll('script');
-  console.log(`Found ${scripts.length} script tags`);
-  
-  scripts.forEach((script, scriptIndex) => {
-    const scriptContent = script.textContent || script.innerHTML;
-    console.log(`Script ${scriptIndex}: ${scriptContent.substring(0, 100)}...`);
-    
-    if (scriptContent.includes('FAQPage') || (scriptContent.includes('@type') && scriptContent.includes('Question'))) {
-      console.log('Found FAQPage schema in script tag!');
-      try {
-        let jsonText = scriptContent.trim();
-        const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          jsonText = jsonMatch[0];
-          jsonText = jsonText.replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-          
-          console.log('Parsing FAQ JSON schema...');
-          const faqData = JSON.parse(jsonText);
-          console.log('Parsed FAQ data:', faqData);
-          
-          if (faqData['@type'] === 'FAQPage' && faqData.mainEntity && Array.isArray(faqData.mainEntity)) {
-            console.log(`Found ${faqData.mainEntity.length} FAQs in schema`);
-            // Convert schema format to HTML rich text
-            const faqContainer = document.createElement('div');
-            faqContainer.className = 'faq-section';
-            
-            // Add FAQ heading
-            const faqHeading = document.createElement('h2');
-            faqHeading.textContent = 'FAQs';
-            faqContainer.appendChild(faqHeading);
-            
-            // Convert each FAQ from schema to HTML
-            faqData.mainEntity.forEach((faq) => {
-              if (faq['@type'] === 'Question' && faq.name) {
-                // Question as H3
-                const questionHeading = document.createElement('h3');
-                questionHeading.textContent = faq.name;
-                faqContainer.appendChild(questionHeading);
-                
-                // Answer as paragraph(s)
-                let answerText = '';
-                if (faq.acceptedAnswer) {
-                  if (typeof faq.acceptedAnswer === 'object' && faq.acceptedAnswer.text) {
-                    answerText = faq.acceptedAnswer.text;
-                  } else if (typeof faq.acceptedAnswer === 'string') {
-                    answerText = faq.acceptedAnswer;
-                  }
-                }
-                
-                if (answerText) {
-                  // Split answer by line breaks and create paragraphs
-                  const answerLines = answerText.split('\n').filter(line => line.trim());
-                  if (answerLines.length > 0) {
-                    answerLines.forEach(line => {
-                      const trimmedLine = line.trim();
-                      if (trimmedLine) {
-                        const answerPara = document.createElement('p');
-                        answerPara.textContent = trimmedLine;
-                        faqContainer.appendChild(answerPara);
-                      }
-                    });
-                  } else {
-                    // If no line breaks, just add as single paragraph
-                    const answerPara = document.createElement('p');
-                    answerPara.textContent = answerText.trim();
-                    faqContainer.appendChild(answerPara);
-                  }
-                }
-              }
-            });
-            
-            // Use schema if we didn't extract from content, or if schema has more FAQs
-            const schemaHtml = faqContainer.innerHTML;
-            console.log('Schema HTML generated, length:', schemaHtml.length);
-            if (schemaHtml && schemaHtml.trim()) {
-              // Always use schema if we have no FAQs from content, or if schema has more
-              if (!extractedFAQs || extractedFAQs.trim() === '' || (faqData.mainEntity.length > faqQuestionsCount)) {
-                extractedFAQs = schemaHtml;
-                console.log(`✅ Using FAQ schema from script tag (${faqData.mainEntity.length} FAQs) as HTML`);
-                console.log('Schema FAQ HTML preview:', extractedFAQs.substring(0, 300));
-              } else {
-                console.log(`Keeping content-extracted FAQs (${faqQuestionsCount} vs ${faqData.mainEntity.length} from schema)`);
-              }
-            } else {
-              console.warn('Schema HTML is empty or invalid');
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error parsing FAQ schema:', error);
-      }
-    }
-    
-    // Remove all script tags
-    script.remove();
-  });
-  
-  // Extract Disclaimer section
-  if (disclaimerStartElement) {
-    const disclaimerParts = [];
-    let currentElement = disclaimerStartElement.nextSibling;
-    
-    // Collect disclaimer text
-    while (currentElement) {
-      const tagName = currentElement.tagName ? currentElement.tagName.toLowerCase() : '';
-      const text = currentElement.textContent ? currentElement.textContent.trim() : '';
-      
-      // Stop if we hit FAQ section (shouldn't happen, but safety check)
-      if (text.toLowerCase().includes('faq')) {
-        break;
-      }
-      
-      // Collect paragraphs and divs
-      if ((tagName === 'p' || tagName === 'div') && text && text.length > 10) {
-        disclaimerParts.push(text);
-      }
-      
-      currentElement = currentElement.nextSibling;
-      
-      // Safety limit
-      if (disclaimerParts.length > 20) {
-        break;
-      }
-    }
-    
-    extractedDisclaimer = disclaimerParts.join(' ').trim();
-    if (extractedDisclaimer) {
-      console.log(`Extracted disclaimer: ${extractedDisclaimer.substring(0, 50)}...`);
-    }
-  }
-  
-  // Remove FAQ section completely from content (from FAQ start to Disclaimer start)
-  if (faqStartElement && disclaimerStartElement) {
-    let currentElement = faqStartElement;
-    const elementsToRemove = [];
-    
-    // Collect all elements from FAQ to Disclaimer
-    while (currentElement && currentElement !== disclaimerStartElement) {
-      elementsToRemove.push(currentElement);
-      currentElement = currentElement.nextSibling;
-      
-      // Safety check
-      if (!currentElement || elementsToRemove.length > 100) {
-        break;
-      }
-    }
-    
-    // Remove all FAQ section elements
-    elementsToRemove.forEach(element => {
-      if (element.parentNode) {
-        element.remove();
-      }
-    });
-    
-    console.log(`Removed FAQ section from content (${elementsToRemove.length} elements)`);
-  }
-  
-  // Remove "FAQ Schema" text if present
-  const walker = document.createTreeWalker(
-    tempDiv,
-    NodeFilter.SHOW_TEXT,
-    null,
-    false
-  );
-  
-  let node;
-  while (node = walker.nextNode()) {
-    if (node.textContent && node.textContent.includes('FAQ Schema')) {
-      node.textContent = node.textContent.replace(/FAQ\s+Schema/gi, '').trim();
-      if (!node.textContent || !node.textContent.trim()) {
-        if (node.parentNode) {
-          node.parentNode.remove();
-        }
-      }
-    }
-  }
-  
-  // Final check: Count FAQs for logging
-  let faqCount = 0;
-  if (extractedFAQs) {
-    const countDiv = document.createElement('div');
-    countDiv.innerHTML = extractedFAQs;
-    faqCount = countDiv.querySelectorAll('h3').length;
-  }
-  
-  console.log(`=== FAQ extraction complete ===`);
-  console.log(`FAQs found: ${faqCount}`);
-  console.log(`FAQ data type: ${typeof extractedFAQs}`);
-  console.log(`FAQ data length: ${extractedFAQs ? extractedFAQs.length : 0}`);
-  console.log(`Disclaimer: ${extractedDisclaimer ? 'Yes (' + extractedDisclaimer.length + ' chars)' : 'No'}`);
-  
-  if (extractedFAQs) {
-    console.log('Final FAQ HTML preview:', extractedFAQs.substring(0, 500));
-  } else {
-    console.warn('⚠️ NO FAQs EXTRACTED! Check the document structure.');
-  }
-  
-  return tempDiv.innerHTML;
-}
-
-// Upload images to Strapi
-async function uploadImagesToStrapi(config) {
-  if (!extractedImages || extractedImages.length === 0) {
-    console.log('No images to upload');
-    return [];
-  }
-  
-  const uploadedImageIds = [];
-  
-  for (let i = 0; i < extractedImages.length; i++) {
-    const imageInfo = extractedImages[i];
-    
-    try {
-      // Create FormData for image upload
-      const formData = new FormData();
-      
-      // Use blob if available, otherwise skip
-      if (!imageInfo.blob) {
-        console.warn(`Image ${i} has no blob data, skipping`);
-        continue;
-      }
-      
-      formData.append('files', imageInfo.blob, imageInfo.filename || `image-${i + 1}.png`);
-      
-      // Upload image to Strapi
-      const uploadResponse = await fetch(`${config.strapiUrl}/api/upload`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${config.apiToken}`
-        },
-        body: formData
-      });
-      
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        console.error(`Failed to upload image ${i}:`, errorText);
-        continue;
-      }
-      
-      const uploadResult = await uploadResponse.json();
-      console.log(`Image ${i} uploaded successfully:`, uploadResult);
-      
-      // Strapi returns array of uploaded files
-      if (Array.isArray(uploadResult)) {
-        uploadResult.forEach(file => {
-          uploadedImageIds.push(file.id);
-        });
-      } else if (uploadResult.id) {
-        uploadedImageIds.push(uploadResult.id);
-      }
-      
-    } catch (error) {
-      console.error(`Error uploading image ${i}:`, error);
-    }
-  }
-  
-  console.log(`Successfully uploaded ${uploadedImageIds.length} images`);
-  return uploadedImageIds;
-}
-
-// Link images to blog post entry
-async function linkImagesToPost(config, postId, imageIds) {
-  if (!imageIds || imageIds.length === 0) {
-    console.log('No images to link');
-    return;
-  }
-  
-  try {
-    // Get the documentId (Strapi v5 uses documentId instead of id for updates)
-    // First, get the post to find documentId
-    // Try both plural and singular endpoints
-    const endpoints = [
-      `${config.strapiUrl}/api/${COLLECTION_TYPE}s/${postId}`,
-      `${config.strapiUrl}/api/${COLLECTION_TYPE}/${postId}`
-    ];
-    
-    let getResponse = null;
-    for (const endpoint of endpoints) {
-      try {
-        getResponse = await fetch(endpoint, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${config.apiToken}`
-          }
-        });
-        
-        if (getResponse.ok) {
-          console.log(`Successfully got post from: ${endpoint}`);
-          break;
-        }
-      } catch (error) {
-        console.log(`Error trying endpoint ${endpoint}:`, error);
-      }
-    }
-    
-    if (!getResponse || !getResponse.ok) {
-      console.error('Failed to get post for linking images. Status:', getResponse?.status);
-      console.error('Post ID used:', postId);
-      console.error('Collection type:', COLLECTION_TYPE);
-      console.error('Tried endpoints:', endpoints);
-      return;
-    }
-    
-    const postData = await getResponse.json();
-    const documentId = postData.data?.documentId || postData.data?.id || postId;
-    
-    // Update post with images
-    // First image goes to featuredImage, all images go to images array
-    const updateData = {
-      data: {}
-    };
-    
-    if (imageIds.length > 0) {
-      // Set first image as featured image
-      updateData.data.featuredImage = imageIds[0];
-      
-      // Set all images in images array
-      updateData.data.images = imageIds;
-    }
-    
-    const updateResponse = await fetch(`${config.strapiUrl}/api/${COLLECTION_TYPE}s/${documentId}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiToken}`
-      },
-      body: JSON.stringify(updateData)
-    });
-    
-    if (!updateResponse.ok) {
-      const errorText = await updateResponse.text();
-      console.error('Failed to link images to post:', errorText);
-      return;
-    }
-    
-    console.log('Images linked to post successfully');
-    
-  } catch (error) {
-    console.error('Error linking images to post:', error);
-  }
 }
 
 // Publish to Strapi
@@ -2826,9 +1565,13 @@ publishBtn.addEventListener('click', async () => {
     blogData.data.title = titleValue;
     console.log('Title included in request:', titleValue);
     
-    // Add content field (hardcoded as 'content')
+    // Add content field (use configured field name, default to 'content')
+    let contentFieldName = config.contentFieldName || 'content';
+    if (contentFieldNameInput && contentFieldNameInput.value.trim()) {
+      contentFieldName = contentFieldNameInput.value.trim();
+    }
     if (parsedContent) {
-      blogData.data[CONTENT_FIELD_NAME] = parsedContent;
+      blogData.data[contentFieldName] = parsedContent;
     }
     
     // Add optional metadata fields only if they have values
@@ -2848,30 +1591,6 @@ publishBtn.addEventListener('click', async () => {
       blogData.data.publishAt = publishAtInput.value.trim();
     }
     
-    // Add FAQs if extracted (as HTML rich text) - field name is "FAQs" (uppercase) in schema
-    if (extractedFAQs && typeof extractedFAQs === 'string' && extractedFAQs.trim()) {
-      blogData.data.FAQs = extractedFAQs;
-      // Count FAQs for logging
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = extractedFAQs;
-      const faqCount = tempDiv.querySelectorAll('h3').length;
-      console.log(`✅ Including ${faqCount} FAQs in blog post data as HTML rich text`);
-      console.log('FAQ HTML preview:', extractedFAQs.substring(0, 200));
-      console.log('FAQ HTML full length:', extractedFAQs.length);
-    } else {
-      console.warn('⚠️ No FAQs to include. extractedFAQs value:', extractedFAQs, 'type:', typeof extractedFAQs);
-      console.warn('extractedFAQs is null?', extractedFAQs === null);
-      console.warn('extractedFAQs is undefined?', extractedFAQs === undefined);
-    }
-    
-    // Add disclaimer if extracted
-    if (extractedDisclaimer && typeof extractedDisclaimer === 'string' && extractedDisclaimer.trim()) {
-      blogData.data.disclaimer = extractedDisclaimer.trim();
-      console.log('Including disclaimer in blog post data');
-    } else {
-      console.warn('No disclaimer to include. extractedDisclaimer value:', extractedDisclaimer);
-    }
-    
     // Log the data being sent for debugging
     console.log('📦 Data being sent to Strapi:', JSON.stringify(blogData, null, 2));
     
@@ -2879,8 +1598,8 @@ publishBtn.addEventListener('click', async () => {
     // Strapi v5 uses plural endpoints by default (e.g., /api/blog-posts)
     // Try plural first, then singular for backward compatibility
     const endpoints = [
-      `${config.strapiUrl}/api/${COLLECTION_TYPE}s`,  // Plural (Strapi v5 default)
-      `${config.strapiUrl}/api/${COLLECTION_TYPE}`   // Singular (backward compatibility)
+      `${config.strapiUrl}/api/${config.collectionType}s`,  // Plural (Strapi v5 default)
+      `${config.strapiUrl}/api/${config.collectionType}`   // Singular (backward compatibility)
     ];
     
     // First, test which endpoint exists with a GET request
@@ -2928,7 +1647,7 @@ publishBtn.addEventListener('click', async () => {
       console.log('Publishing to Strapi:', {
         endpoint: endpoint,
         method: 'POST',
-        collectionType: COLLECTION_TYPE,
+        collectionType: config.collectionType,
         hasContent: !!parsedContent,
         title: blogData.data.title
       });
@@ -3051,7 +1770,7 @@ publishBtn.addEventListener('click', async () => {
               } else {
                 suggestions += `The field "${invalidKey}" doesn't exist in your content type.\n\n`;
                 suggestions += 'To fix:\n';
-                suggestions += '1. Go to Strapi Admin → Content-Type Builder → ' + COLLECTION_TYPE + '\n';
+                suggestions += '1. Go to Strapi Admin → Content-Type Builder → ' + config.collectionType + '\n';
                 suggestions += '2. Check what fields actually exist\n';
                 suggestions += '3. Either:\n';
                 suggestions += '   - Remove this field from the request, OR\n';
@@ -3104,7 +1823,7 @@ publishBtn.addEventListener('click', async () => {
           `4. Invalid date format for publishAt field\n\n` +
           `To fix:\n` +
           `1. Check the error details above - it will show which fields are invalid\n` +
-          `2. Go to Strapi Admin → Content-Type Builder → ${COLLECTION_TYPE}\n` +
+          `2. Go to Strapi Admin → Content-Type Builder → ${config.collectionType}\n` +
           `3. Check which fields are required (marked with *)\n` +
           `4. Verify field names match exactly (case-sensitive)\n` +
           `5. Check field types match (text, richtext, date, etc.)\n` +
@@ -3121,11 +1840,11 @@ publishBtn.addEventListener('click', async () => {
           `2. Content-Type permissions not properly configured\n` +
           `3. API token doesn't have required permissions\n\n` +
           `To fix:\n` +
-          `1. Check for custom policies in: src/api/${COLLECTION_TYPE}/policies/\n` +
+          `1. Check for custom policies in: src/api/${config.collectionType}/policies/\n` +
           `2. Strapi Admin → Settings → API Tokens → Edit token\n` +
           `   - Set to "Full access" OR enable all permissions for your content type\n` +
           `3. Settings → Users & Permissions → Roles → Public/Authenticated\n` +
-          `   - Enable "create" permission for "${COLLECTION_TYPE}"\n` +
+          `   - Enable "create" permission for "${config.collectionType}"\n` +
           `4. If you have custom policies, check they allow API token access\n` +
           `5. Try using "Full access" token type for testing\n`;
       }
@@ -3140,7 +1859,7 @@ publishBtn.addEventListener('click', async () => {
           `2. Edit your API token\n` +
           `3. Under "Token type", select "Full access" OR ensure "Create" is checked for your content type\n` +
           `4. Also check: Settings → Users & Permissions Plugin → Roles → Public (or Authenticated)\n` +
-          `5. Ensure "create" permission is enabled for "${COLLECTION_TYPE}" content type`;
+          `5. Ensure "create" permission is enabled for "${config.collectionType}" content type`;
       }
       // Add message for 403 errors (general)
       else if (response?.status === 403 && !errorMessage.includes('Policy Failed')) {
@@ -3151,7 +1870,7 @@ publishBtn.addEventListener('click', async () => {
           `3. Custom policy blocking the request\n\n` +
           `To fix:\n` +
           `1. Strapi Admin → Settings → API Tokens → Edit token → Set to "Full access"\n` +
-          `2. Settings → Users & Permissions → Roles → Enable "create" for "${COLLECTION_TYPE}"\n`;
+          `2. Settings → Users & Permissions → Roles → Enable "create" for "${config.collectionType}"\n`;
       }
       
       // Show detailed error in UI
@@ -3161,49 +1880,15 @@ publishBtn.addEventListener('click', async () => {
     
     const result = await response.json();
     console.log('Success:', result);
-    console.log('Full result structure:', JSON.stringify(result, null, 2));
     
-    // Strapi v5 uses documentId, v4 uses id
-    const postId = result.data?.documentId || result.data?.id || result.data?.attributes?.documentId || result.data?.attributes?.id || 'unknown';
+    showLoading(false);
+    // Handle both Strapi v4 and v5 response formats
+    const postId = result.data?.id || result.data?.attributes?.id || 'unknown';
     const postTitle = result.data?.attributes?.title || result.data?.title || 'Blog Post';
-    
-    console.log('Extracted postId:', postId);
-    console.log('Extracted postTitle:', postTitle);
-    
-    // Upload and link images if any were extracted
-    if (extractedImages && extractedImages.length > 0) {
-      console.log('Uploading images to Strapi...');
-      try {
-        const uploadedImageIds = await uploadImagesToStrapi(config);
-        
-        if (uploadedImageIds.length > 0) {
-          console.log('Linking images to blog post...');
-          await linkImagesToPost(config, postId, uploadedImageIds);
-          showStatus(
-            `Blog post created successfully!\nID: ${postId}\nTitle: ${postTitle}\nImages: ${uploadedImageIds.length} uploaded`,
-            'success'
-          );
-        } else {
-          showStatus(
-            `Blog post created successfully!\nID: ${postId}\nTitle: ${postTitle}\nNote: Images could not be uploaded`,
-            'success'
-          );
-        }
-      } catch (imageError) {
-        console.error('Error uploading images:', imageError);
-        showStatus(
-          `Blog post created successfully!\nID: ${postId}\nTitle: ${postTitle}\nWarning: Image upload failed`,
-          'success'
-        );
-      }
-    } else {
     showStatus(
       `Blog post created successfully!\nID: ${postId}\nTitle: ${postTitle}`,
       'success'
     );
-    }
-    
-    showLoading(false);
     
     // Clear form after successful publish
     setTimeout(() => {
@@ -3216,4 +1901,3 @@ publishBtn.addEventListener('click', async () => {
     showStatus(`Error publishing: ${error.message}`, 'error');
   }
 });
-
